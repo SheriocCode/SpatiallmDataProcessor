@@ -1,0 +1,445 @@
+{
+    "images": [
+        {
+            "file_name": "00000.png",
+            "id": 0,
+            "width": 256,
+            "height": 256
+        }
+    ],
+    "annotations": [
+        {
+            "segmentation": [
+                [
+                    22.0,
+                    122.0,
+                    22.0,
+                    203.0,
+                    113.0,
+                    203.0,
+                    113.0,
+                    122.0
+                ]
+            ],
+            "area": 7371.0,
+            "iscrowd": 0,
+            "image_id": 0,
+            "bbox": [
+                20.0,
+                120.0,
+                95.0,
+                85.0
+            ],
+            "category_id": 0,
+            "id": 0
+        },
+        {
+            "segmentation": [
+                [
+                    117.0,
+                    121.0,
+                    117.0,
+                    227.0,
+                    209.0,
+                    227.0,
+                    209.0,
+                    90.0,
+                    156.0,
+                    90.0
+                ]
+            ],
+            "area": 11999.5,
+            "iscrowd": 0,
+            "image_id": 0,
+            "bbox": [
+                115.0,
+                88.0,
+                96.0,
+                141.0
+            ],
+            "category_id": 2,
+            "id": 1
+        },
+        {
+            "segmentation": [
+                [
+                    115.0,
+                    211.0,
+                    115.0,
+                    227.0
+                ]
+            ],
+            "area": 64.0,
+            "iscrowd": 0,
+            "image_id": 0,
+            "bbox": [
+                111.0,
+                209.0,
+                8.0,
+                20.0
+            ],
+            "category_id": 17,
+            "id": 2
+        },
+        {
+            "segmentation": [
+                [
+                    128.0,
+                    22.5,
+                    152.0,
+                    22.5
+                ]
+            ],
+            "area": 168.0,
+            "iscrowd": 0,
+            "image_id": 0,
+            "bbox": [
+                126.0,
+                17.0,
+                28.0,
+                11.0
+            ],
+            "category_id": 17,
+            "id": 3
+        },
+        {
+            "segmentation": [
+                [
+                    189.5,
+                    27.0,
+                    189.5,
+                    47.0
+                ]
+            ],
+            "area": 100.0,
+            "iscrowd": 0,
+            "image_id": 0,
+            "bbox": [
+                185.0,
+                25.0,
+                9.0,
+                24.0
+            ],
+            "category_id": 16,
+            "id": 4
+        },
+        {
+            "segmentation": [
+                [
+                    162.0,
+                    22.5,
+                    186.0,
+                    22.5
+                ]
+            ],
+            "area": 168.0,
+            "iscrowd": 0,
+            "image_id": 0,
+            "bbox": [
+                160.0,
+                17.0,
+                28.0,
+                11.0
+            ],
+            "category_id": 16,
+            "id": 5
+        },
+        {
+            "segmentation": [
+                [
+                    118.5,
+                    117.5,
+                    153.0,
+                    89.5
+                ]
+            ],
+            "area": 173.5,
+            "iscrowd": 0,
+            "image_id": 0,
+            "bbox": [
+                115.0,
+                86.0,
+                41.0,
+                35.0
+            ],
+            "category_id": 16,
+            "id": 6
+        },
+        {
+            "segmentation": [
+                [
+                    22.0,
+                    120.5,
+                    43.0,
+                    120.5
+                ]
+            ],
+            "area": 63.0,
+            "iscrowd": 0,
+            "image_id": 0,
+            "bbox": [
+                20.0,
+                117.0,
+                25.0,
+                7.0
+            ],
+            "category_id": 16,
+            "id": 7
+        },
+        {
+            "segmentation": [
+                [
+                    43.0,
+                    120.5,
+                    92.0,
+                    120.5
+                ]
+            ],
+            "area": 147.0,
+            "iscrowd": 0,
+            "image_id": 0,
+            "bbox": [
+                41.0,
+                117.0,
+                53.0,
+                7.0
+            ],
+            "category_id": 17,
+            "id": 8
+        },
+        {
+            "segmentation": [
+                [
+                    205.0,
+                    22.5,
+                    224.0,
+                    22.5
+                ]
+            ],
+            "area": 133.0,
+            "iscrowd": 0,
+            "image_id": 0,
+            "bbox": [
+                203.0,
+                17.0,
+                23.0,
+                11.0
+            ],
+            "category_id": 17,
+            "id": 9
+        },
+        {
+            "segmentation": [
+                [
+                    92.0,
+                    120.5,
+                    113.0,
+                    120.5
+                ]
+            ],
+            "area": 63.0,
+            "iscrowd": 0,
+            "image_id": 0,
+            "bbox": [
+                90.0,
+                117.0,
+                25.0,
+                7.0
+            ],
+            "category_id": 16,
+            "id": 10
+        },
+        {
+            "segmentation": [
+                [
+                    22.0,
+                    47.0,
+                    22.0,
+                    119.0,
+                    114.0,
+                    119.0,
+                    155.0,
+                    86.0,
+                    187.0,
+                    86.0,
+                    187.0,
+                    26.0,
+                    117.0,
+                    26.0,
+                    117.0,
+                    47.0
+                ]
+            ],
+            "area": 11617.5,
+            "iscrowd": 0,
+            "image_id": 0,
+            "bbox": [
+                20.0,
+                24.0,
+                169.0,
+                97.0
+            ],
+            "category_id": 6,
+            "id": 11
+        },
+        {
+            "segmentation": [
+                [
+                    192.0,
+                    26.0,
+                    192.0,
+                    53.0,
+                    234.0,
+                    53.0,
+                    234.0,
+                    26.0
+                ]
+            ],
+            "area": 1134.0,
+            "iscrowd": 0,
+            "image_id": 0,
+            "bbox": [
+                190.0,
+                24.0,
+                46.0,
+                31.0
+            ],
+            "category_id": 3,
+            "id": 12
+        },
+        {
+            "segmentation": [
+                [
+                    39.0,
+                    207.0,
+                    94.0,
+                    207.0
+                ]
+            ],
+            "area": 440.0,
+            "iscrowd": 0,
+            "image_id": 0,
+            "bbox": [
+                37.0,
+                201.0,
+                59.0,
+                12.0
+            ],
+            "category_id": 17,
+            "id": 13
+        },
+        {
+            "segmentation": [
+                [
+                    119.0,
+                    231.0,
+                    199.0,
+                    231.0
+                ]
+            ],
+            "area": 640.0,
+            "iscrowd": 0,
+            "image_id": 0,
+            "bbox": [
+                117.0,
+                225.0,
+                84.0,
+                12.0
+            ],
+            "category_id": 17,
+            "id": 14
+        }
+    ],
+    "categories": [
+        {
+            "supercategory": "room",
+            "id": 0,
+            "name": "living room"
+        },
+        {
+            "supercategory": "room",
+            "id": 1,
+            "name": "kitchen"
+        },
+        {
+            "supercategory": "room",
+            "id": 2,
+            "name": "bedroom"
+        },
+        {
+            "supercategory": "room",
+            "id": 3,
+            "name": "bathroom"
+        },
+        {
+            "supercategory": "room",
+            "id": 4,
+            "name": "balcony"
+        },
+        {
+            "supercategory": "room",
+            "id": 5,
+            "name": "corridor"
+        },
+        {
+            "supercategory": "room",
+            "id": 6,
+            "name": "dining room"
+        },
+        {
+            "supercategory": "room",
+            "id": 7,
+            "name": "study"
+        },
+        {
+            "supercategory": "room",
+            "id": 8,
+            "name": "studio"
+        },
+        {
+            "supercategory": "room",
+            "id": 9,
+            "name": "store room"
+        },
+        {
+            "supercategory": "room",
+            "id": 10,
+            "name": "garden"
+        },
+        {
+            "supercategory": "room",
+            "id": 11,
+            "name": "laundry room"
+        },
+        {
+            "supercategory": "room",
+            "id": 12,
+            "name": "office"
+        },
+        {
+            "supercategory": "room",
+            "id": 13,
+            "name": "basement"
+        },
+        {
+            "supercategory": "room",
+            "id": 14,
+            "name": "garage"
+        },
+        {
+            "supercategory": "room",
+            "id": 15,
+            "name": "undefined"
+        },
+        {
+            "supercategory": "room",
+            "id": 16,
+            "name": "door"
+        },
+        {
+            "supercategory": "room",
+            "id": 17,
+            "name": "window"
+        }
+    ]
+}
