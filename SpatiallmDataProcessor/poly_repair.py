@@ -24,6 +24,7 @@ Wall Polygon Repair and Validation Tool
 
 import sys
 import os
+import csv
 import pickle
 from pathlib import Path
 import logging
@@ -435,8 +436,6 @@ def process_single_file(file_path):
         # 写入修复后的文件
         output_path = write_repaired_file(file_path, new_walls, bboxes)
         logging.info(f"{file_path} - 修复完成，输出至：{output_path}")
-        # 写入csv文件
-
 
         visualize_polygon_repair(source_filename, original_poly, repaired_poly, raw_points)
 
@@ -448,27 +447,41 @@ def process_single_file(file_path):
 
 
 def main(input_path):
-    """主函数：处理单个文件或文件夹"""
+    """主函数：处理单个文件或文件夹（递归处理子文件夹）"""
     if os.path.isfile(input_path) and input_path.endswith('.txt'):
         # 处理单个文件
         process_single_file(input_path)
     elif os.path.isdir(input_path):
-        # 处理文件夹中的所有txt文件
-        txt_files = [f for f in os.listdir(input_path) 
-                    if os.path.isfile(os.path.join(input_path, f)) 
-                    and f.endswith('.txt')]
+        # 递归处理文件夹及其所有子文件夹中的txt文件
+        txt_files = []
+        for root, dirs, files in os.walk(input_path):
+            for file in files:
+                if file.endswith('.txt'):
+                    file_path = os.path.join(root, file)
+                    txt_files.append(file_path)
         
         if not txt_files:
-            logging.warning(f"文件夹 {input_path} 中未找到txt文件")
-            print(f"警告：文件夹 {input_path} 中未找到txt文件")
+            logging.warning(f"文件夹 {input_path} 及其子文件夹中未找到txt文件")
+            print(f"警告：文件夹 {input_path} 及其子文件夹中未找到txt文件")
             return
 
-        for txt_file in txt_files:
-            file_path = os.path.join(input_path, txt_file)
-            process_single_file(file_path)
-        
         print(f"处理完成，共处理 {len(txt_files)} 个文件")
+        
+        # 创建修复文件映射CSV（直接在main函数中处理）
+        csv_path = OUTPUT_PATH / 'repaired_files_mapping.csv'
+        with open(csv_path, 'w', newline='', encoding='utf-8') as csvfile:
+            csv_writer = csv.writer(csvfile)
+            # 写入CSV表头
+            csv_writer.writerow(['子文件夹路径', '修复文件名'])
+            logging.info(f"创建修复文件映射CSV: {csv_path}")
+            
+            # 处理每个txt文件
+            for txt_file in txt_files:
+                result = process_single_file(txt_file)
+                if result:
+                    csv_writer.writerow([os.path.basename(os.path.dirname(txt_file)), os.path.basename(result)])
         print(f"日志记录已保存至 .log")
+        print(f"修复文件映射已保存至: {csv_path}")
     else:
         print(f"错误：{input_path} 不是有效的文件或文件夹")
         logging.error(f"无效输入路径：{input_path}")
@@ -476,7 +489,7 @@ def main(input_path):
 
 if __name__ == "__main__":
     # ==================== 路径配置 ====================
-    OUTPUT_PATH = Path("poly_repair_output")
+    OUTPUT_PATH = Path("output/poly_repair")
     REPAIRED_TXT_PATH = OUTPUT_PATH / "txt_repaired" # 修复后的txt文件路径
     FIG_SAVE_PATH = OUTPUT_PATH / "fig_save"
     PICKLE_SAVE_PATH = OUTPUT_PATH / "pickle_save"
