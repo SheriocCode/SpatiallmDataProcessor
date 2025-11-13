@@ -1,0 +1,364 @@
+{
+  "categories": [
+    {
+      "supercategory": "room",
+      "id": 0,
+      "name": "window"
+    },
+    {
+      "supercategory": "room",
+      "id": 1,
+      "name": "door"
+    },
+    {
+      "supercategory": "room",
+      "id": 2,
+      "name": "bedroom"
+    },
+    {
+      "supercategory": "room",
+      "id": 3,
+      "name": "master bedroom"
+    },
+    {
+      "supercategory": "room",
+      "id": 4,
+      "name": "living room"
+    },
+    {
+      "supercategory": "room",
+      "id": 5,
+      "name": "kitchen"
+    },
+    {
+      "supercategory": "room",
+      "id": 6,
+      "name": "bathroom"
+    },
+    {
+      "supercategory": "room",
+      "id": 7,
+      "name": "living room with dining area"
+    },
+    {
+      "supercategory": "room",
+      "id": 8,
+      "name": "children's bedroom"
+    },
+    {
+      "supercategory": "room",
+      "id": 9,
+      "name": "home office"
+    },
+    {
+      "supercategory": "room",
+      "id": 10,
+      "name": "laundry room"
+    },
+    {
+      "supercategory": "room",
+      "id": 11,
+      "name": "living and dining room"
+    },
+    {
+      "supercategory": "room",
+      "id": 12,
+      "name": "bedroom with home office"
+    },
+    {
+      "supercategory": "room",
+      "id": 13,
+      "name": "dining room"
+    },
+    {
+      "supercategory": "room",
+      "id": 14,
+      "name": "primary bedroom"
+    },
+    {
+      "supercategory": "room",
+      "id": 15,
+      "name": "study room"
+    },
+    {
+      "supercategory": "room",
+      "id": 16,
+      "name": "foyer"
+    },
+    {
+      "supercategory": "room",
+      "id": 17,
+      "name": "secondary bedroom"
+    },
+    {
+      "supercategory": "room",
+      "id": 18,
+      "name": "media room"
+    },
+    {
+      "supercategory": "room",
+      "id": 19,
+      "name": "guest room"
+    },
+    {
+      "supercategory": "room",
+      "id": 20,
+      "name": "child room"
+    },
+    {
+      "supercategory": "room",
+      "id": 21,
+      "name": "balcony"
+    },
+    {
+      "supercategory": "room",
+      "id": 22,
+      "name": "office"
+    },
+    {
+      "supercategory": "room",
+      "id": 23,
+      "name": "hallway"
+    },
+    {
+      "supercategory": "room",
+      "id": 24,
+      "name": "primary bathroom"
+    },
+    {
+      "supercategory": "room",
+      "id": 25,
+      "name": "game room"
+    },
+    {
+      "supercategory": "room",
+      "id": 26,
+      "name": "guest bathroom"
+    },
+    {
+      "supercategory": "room",
+      "id": 27,
+      "name": "family room"
+    },
+    {
+      "supercategory": "room",
+      "id": 28,
+      "name": "kitchen with dining area"
+    },
+    {
+      "supercategory": "room",
+      "id": 29,
+      "name": "dining room with living room"
+    },
+    {
+      "supercategory": "room",
+      "id": 30,
+      "name": "bedroom with study room"
+    },
+    {
+      "supercategory": "room",
+      "id": 31,
+      "name": "closet"
+    },
+    {
+      "supercategory": "room",
+      "id": 32,
+      "name": "pantry"
+    },
+    {
+      "supercategory": "room",
+      "id": 33,
+      "name": "dining room with living area"
+    },
+    {
+      "supercategory": "room",
+      "id": 34,
+      "name": "dining room with kitchen"
+    },
+    {
+      "supercategory": "room",
+      "id": 35,
+      "name": "music room"
+    },
+    {
+      "supercategory": "room",
+      "id": 36,
+      "name": "living room with home office"
+    },
+    {
+      "supercategory": "room",
+      "id": 37,
+      "name": "home office with bedroom"
+    },
+    {
+      "supercategory": "room",
+      "id": 38,
+      "name": "mudroom"
+    },
+    {
+      "supercategory": "room",
+      "id": 39,
+      "name": "master bedroom with home office"
+    },
+    {
+      "supercategory": "room",
+      "id": 40,
+      "name": "gym"
+    },
+    {
+      "supercategory": "room",
+      "id": 41,
+      "name": "living room with laundry room"
+    },
+    {
+      "supercategory": "room",
+      "id": 42,
+      "name": "living room with kitchen"
+    },
+    {
+      "supercategory": "room",
+      "id": 43,
+      "name": "bathroom with laundry room"
+    },
+    {
+      "supercategory": "room",
+      "id": 44,
+      "name": "wardrobe"
+    },
+    {
+      "supercategory": "room",
+      "id": 45,
+      "name": "living room with media room"
+    },
+    {
+      "supercategory": "room",
+      "id": 46,
+      "name": "bedroom with study area"
+    },
+    {
+      "supercategory": "room",
+      "id": 47,
+      "name": "clothing store"
+    },
+    {
+      "supercategory": "room",
+      "id": 48,
+      "name": "tatami room"
+    },
+    {
+      "supercategory": "room",
+      "id": 49,
+      "name": "bedroom with dining area"
+    },
+    {
+      "supercategory": "room",
+      "id": 50,
+      "name": "home gym"
+    },
+    {
+      "supercategory": "room",
+      "id": 51,
+      "name": "other"
+    },
+    {
+      "supercategory": "room",
+      "id": 52,
+      "name": "spa"
+    },
+    {
+      "supercategory": "room",
+      "id": 53,
+      "name": "entryway"
+    },
+    {
+      "supercategory": "room",
+      "id": 54,
+      "name": "meditation room"
+    },
+    {
+      "supercategory": "room",
+      "id": 55,
+      "name": "closet combination"
+    },
+    {
+      "supercategory": "room",
+      "id": 56,
+      "name": "bedroom with living area"
+    },
+    {
+      "supercategory": "room",
+      "id": 57,
+      "name": "library"
+    },
+    {
+      "supercategory": "room",
+      "id": 58,
+      "name": "furniture store"
+    },
+    {
+      "supercategory": "room",
+      "id": 59,
+      "name": "entertainment room"
+    },
+    {
+      "supercategory": "room",
+      "id": 60,
+      "name": "walk-in closet"
+    },
+    {
+      "supercategory": "room",
+      "id": 61,
+      "name": "bedroom with media room"
+    },
+    {
+      "supercategory": "room",
+      "id": 62,
+      "name": "meeting room"
+    },
+    {
+      "supercategory": "room",
+      "id": 63,
+      "name": "empty room"
+    },
+    {
+      "supercategory": "room",
+      "id": 64,
+      "name": "living room with tea room"
+    },
+    {
+      "supercategory": "room",
+      "id": 65,
+      "name": "kitchen with laundry room"
+    },
+    {
+      "supercategory": "room",
+      "id": 66,
+      "name": "bedroom with living room"
+    },
+    {
+      "supercategory": "room",
+      "id": 67,
+      "name": "bedroom with sitting area"
+    },
+    {
+      "supercategory": "room",
+      "id": 68,
+      "name": "wine bar"
+    },
+    {
+      "supercategory": "room",
+      "id": 69,
+      "name": "utility room"
+    },
+    {
+      "supercategory": "room",
+      "id": 70,
+      "name": "cat room"
+    },
+    {
+      "supercategory": "room",
+      "id": 71,
+      "name": "kitchen with bathroom"
+    }
+  ]
+}

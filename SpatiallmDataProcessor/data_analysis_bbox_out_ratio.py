@@ -8,8 +8,7 @@ sns.set_style("whitegrid")
 plt.rcParams['figure.dpi'] = 100
 
 # ========== 1. 数据加载与清理 ==========
-# file_path = 'out_bbox_out_ratio/layout.csv'
-file_path = 'out_bbox_out_ratio/chunk000_summary.csv'
+file_path = 'output/out_bbox_out_ratio/layout.csv'
 df = pd.read_csv(file_path)
 
 # 数据质量检查

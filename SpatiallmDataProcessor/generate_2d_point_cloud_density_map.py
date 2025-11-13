@@ -110,7 +110,7 @@ def process_single_scene(scene_data, data_root, output_dir, target_size):
 
 # ========== 主进程：并行处理 + 统一日志 ==========
 def batch_generate_scene_density_maps_parallel(
-    split_csv_path="split.csv",
+    split_csv_path="split_sample_sample_id.csv",
     data_root="data",
     output_dir="output_density_maps",
     target_size=(256, 256),

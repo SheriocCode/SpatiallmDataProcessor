@@ -28,10 +28,10 @@ $ python script.py <output_dir> <ply_dir> <txt_dir> <scene_id> --sample <id> --a
 
 示例：
 # 处理 scene_000000 sample为1 的单个房间00
-$ python script.py output/ data/pcd data/txt scene_000000 --sample 1 --room 00
+$ python script.py ./ data/pcd/chunk_000 data/layout/chunk_000 scene_000002 --sample 1 --room 00
 
 # 处理 scene_000000 sample为1 的所有房间
-$ python script.py output/ data/pcd data/txt scene_000000 --sample 1 --all
+$ python script.py output/ data/pcd/chunk_000 data/layout/chunk_000 scene_000002 --sample 1 --all   
 
 # 输出文件自动命名: scene_000000_sample_1_all_rooms.png
 """
@@ -45,7 +45,7 @@ import matplotlib.pyplot as plt
 from dataclasses import dataclass
 from scipy.spatial.transform import Rotation as R
 
-from entity import Wall as _OriginalWall, Door as _OriginalDoor, Window as _OriginalWindow, Bbox as _OriginalBbox
+from utils.entity import Wall as _OriginalWall, Door as _OriginalDoor, Window as _OriginalWindow, Bbox as _OriginalBbox
 
 @dataclass
 class Wall(_OriginalWall):
@@ -180,7 +180,8 @@ def parse_annotation(txt_path, room_id):
             )
             entities["bboxes"].append(bbox)
             continue
-    
+
+  
     return entities
 
 def get_bbox_corners_2d(bbox):

@@ -36,77 +36,7 @@ from shapely.validation import explain_validity
 from utils.entity import Wall, Bbox
 from utils.dir_util import make_dirs
 from utils.log_util import init_logger
-
-
-def parse_scene_file(filename):
-    """解析txt文件，提取墙体和边界框数据"""
-    walls = []
-    bboxes = []
-    
-    with open(filename, 'r') as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-                
-            if line.startswith('wall_'):
-                parts = line.split('=')
-                wall_id = int(parts[0].split('_')[1])
-                wall_data = parts[1].replace('Wall(', '').rstrip(')').split(',')
-                wall_data = [float(x.strip()) for x in wall_data]
-                
-                wall = Wall(
-                    id=wall_id,
-                    ax=wall_data[0],
-                    ay=wall_data[1],
-                    az=wall_data[2],
-                    bx=wall_data[3],
-                    by=wall_data[4],
-                    bz=wall_data[5],
-                    height=wall_data[6],
-                    thickness=wall_data[7]
-                )
-                walls.append(wall)
-            
-            elif line.startswith('bbox_'):
-                parts = line.split('=')
-                bbox_id = int(parts[0].split('_')[1])
-                bbox_data = parts[1].replace('Bbox(', '').rstrip(')').split(',')
-                
-                class_name = bbox_data[0].strip()
-                numeric_data = [float(x.strip()) for x in bbox_data[1:]]
-                
-                bbox = Bbox(
-                    id=bbox_id,
-                    class_name=class_name,
-                    position_x=numeric_data[0],
-                    position_y=numeric_data[1],
-                    position_z=numeric_data[2],
-                    angle_z=numeric_data[3],
-                    scale_x=numeric_data[4],
-                    scale_y=numeric_data[5],
-                    scale_z=numeric_data[6]
-                )
-                bboxes.append(bbox)
-    
-    walls.sort(key=lambda x: x.id)
-    bboxes.sort(key=lambda x: x.id)
-    return walls, bboxes
-
-
-def create_wall_polygon(walls):
-    """从墙体数据创建多边形"""
-    if not walls:
-        return None
-        
-    polygon_points = [(wall.ax, wall.ay) for wall in walls]
-    
-    # 确保多边形闭合
-    if polygon_points and polygon_points[0] != polygon_points[-1]:
-        polygon_points.append(polygon_points[0])
-        
-    return Polygon(polygon_points)
-
+from utils.TxtParser import parse_scene_file, create_wall_polygon
 
 def analyze_polygon_issues(source_filename, wall_polygon, walls):
     """分析多边形无效原因并记录日志"""

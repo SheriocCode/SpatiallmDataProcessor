@@ -157,10 +157,10 @@ def extend_segment_to_bbox(segment, bbox):
 # ==================== 主流程 ====================
 
 # 1. 加载数据
-with open('s3d/00000.json', 'r', encoding='utf-8') as f:
+with open('coco_with_scaled/sample0_256/anno/preprocessed_scene_000000.json', 'r', encoding='utf-8') as f:
     s3d_data = json.load(f)
 
-annotations = [ann for ann in s3d_data['annotations'] if ann['category_id'] not in [16, 17]]
+annotations = [ann for ann in s3d_data['annotations'] if ann['category_id'] not in [0, 1]]
 
 # 2. 定义边界框
 bbox = [(0, 0), (256, 0), (256, 256), (0, 256)]
