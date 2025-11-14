@@ -4,6 +4,10 @@ import matplotlib.tri as mtri
 import triangle  # pip install triangle
 import json
 import os
+import logging
+from utils.log_util import init_logger
+
+init_logger('DelaunayTriangleMesh/.log')
 
 def save_triangulation_to_ply(vertices, triangles, filename='output_mesh.ply', binary=True):
     """将三角剖分结果保存为 PLY 文件格式"""
@@ -160,102 +164,9 @@ def extend_segment_to_bbox(segment, bbox):
     return segment  # 无法延伸的情况
 
 
-# 加载 coco_with_scaled 数据
-with open('coco_with_scaled/sample0_256/anno/scene_000000.json', 'r', encoding='utf-8') as f:
-    coco_data = json.load(f)
-annotations = coco_data.get('annotations', [])
-annotations = [ann for ann in annotations if ann['category_id'] not in [0, 1]]
-
-
-# 定义外包围盒
-box = [
-    (0, 0),
-    (256, 0),
-    (256, 256),
-    (0, 256)
-]
-min_x, min_y = box[0]
-max_x, max_y = box[2]
-
-# 提取所有墙面线段并延伸至边界框
-wall_segments = []
-all_points = []
-
-for ann in annotations:
-    seg = ann["segmentation"][0]  # coco格式: [x1,y1,x2,y2,...]
-    polygon = [(seg[i * 2], seg[i * 2 + 1]) for i in range(len(seg) // 2)]
-    
-    # 提取多边形的边作为墙面线段
-    n = len(polygon)
-    for i in range(n):
-        p1 = polygon[i]
-        p2 = polygon[(i + 1) % n]
-        # 延伸线段至边界框
-        extended = extend_segment_to_bbox((p1, p2), box)
-        wall_segments.append(extended)
-        all_points.extend(extended)
-
-print("[Debug] wall_segments")
-print(wall_segments)
-print("[Debug] all_points")
-print(all_points)
-
-# 添加边界框的点
-all_points.extend(box)
-# 去重顶点
-unique_points = []
-seen = set()
-for p in all_points:
-    # 用四舍五入解决浮点数精度问题
-    key = (round(p[0], 6), round(p[1], 6))
-    if key not in seen:
-        seen.add(key)
-        unique_points.append(p)
-
-# 构建线段索引
-segments = []
-point_indices = { (round(p[0], 6), round(p[1], 6)): i for i, p in enumerate(unique_points) }
-
-for seg in wall_segments:
-    p1, p2 = seg
-    idx1 = point_indices[(round(p1[0], 6), round(p1[1], 6))]
-    idx2 = point_indices[(round(p2[0], 6), round(p2[1], 6))]
-    segments.append((idx1, idx2))
-
-# 添加边界框的边
-box_indices = [point_indices[(round(p[0], 6), round(p[1], 6))] for p in box]
-n = len(box_indices)
-for i in range(n):
-    segments.append((box_indices[i], box_indices[(i + 1) % n]))
-
-print("[DEBUG] 顶点数量:", len(unique_points))
-print("[DEBUG] 线段数量:", len(segments))
-
-# 检查索引是否越界
-segments_np = np.array(segments, dtype=int)
-max_idx = segments_np.max()
-if max_idx >= len(unique_points):
-    raise ValueError(f"❌ 线段索引 {max_idx} 超出了顶点范围（总顶点数={len(unique_points)}）")
-
-# 构造输入字典
-A = dict(
-    vertices=np.array(unique_points, dtype=float),
-    segments=segments_np
-)
-
-print("[DEBUG] 开始三角剖分...")
-B = triangle.triangulate(A, 'p')
-print("[DEBUG] 三角剖分完成!")
-
-if 'triangles' not in B:
-    print("❌ 三角剖分失败，未生成任何三角形")
-else:
-    # 可视化结果
-    vertices = B['vertices']
-    triangles = B['triangles']
-
+# 抽取函数：可视化延伸墙面线段后的约束Delaunay三角剖分
+def visualize_plt(vertices, triangles, wall_segments, box):
     triang = mtri.Triangulation(vertices[:, 0], vertices[:, 1], triangles)
-
     plt.figure(figsize=(10, 10))
     plt.triplot(triang, color='lightblue', linewidth=0.5)
     plt.plot(vertices[:, 0], vertices[:, 1], 'o', color='red', markersize=2)
@@ -274,6 +185,128 @@ else:
     plt.title('延伸墙面线段后的约束Delaunay三角剖分')
     plt.show()
 
-    # 保存为PLY文件
-    save_triangulation_to_ply(vertices, triangles, filename='extended_wall_mesh.ply', binary=True)
-    print("[SUCCESS] 三角剖分结果已保存为 PLY 文件！")
+
+def generate_Delaunay_Mesh(coco_file_path, output_dir):
+
+    # 加载 coco_with_scaled 数据
+    output_path = os.path.join(output_dir,  os.path.basename(coco_file_path).replace('.json', '.ply'))
+    with open(coco_file_path, 'r', encoding='utf-8') as f:
+        coco_data = json.load(f)
+    annotations = coco_data.get('annotations', [])
+    annotations = [ann for ann in annotations if ann['category_id'] not in [0, 1]]
+
+
+    # 定义外包围盒
+    box = [
+        (0, 0),
+        (256, 0),
+        (256, 256),
+        (0, 256)
+    ]
+    min_x, min_y = box[0]
+    max_x, max_y = box[2]
+
+    # 提取所有墙面线段并延伸至边界框
+    wall_segments = []
+    all_points = []
+
+    for ann in annotations:
+        seg = ann["segmentation"][0]  # coco格式: [x1,y1,x2,y2,...]
+        polygon = [(seg[i * 2], seg[i * 2 + 1]) for i in range(len(seg) // 2)]
+        
+        # 提取多边形的边作为墙面线段
+        n = len(polygon)
+        for i in range(n):
+            p1 = polygon[i]
+            p2 = polygon[(i + 1) % n]
+            # 延伸线段至边界框
+            extended = extend_segment_to_bbox((p1, p2), box)
+            wall_segments.append(extended)
+            all_points.extend(extended)
+
+    # print("[Debug] wall_segments")
+    # print(wall_segments)
+    # print("[Debug] all_points")
+    # print(all_points)
+
+    # 添加边界框的点
+    all_points.extend(box)
+    # 去重顶点
+    unique_points = []
+    seen = set()
+    for p in all_points:
+        # 用四舍五入解决浮点数精度问题
+        key = (round(p[0], 6), round(p[1], 6))
+        if key not in seen:
+            seen.add(key)
+            unique_points.append(p)
+
+    # 构建线段索引
+    segments = []
+    point_indices = { (round(p[0], 6), round(p[1], 6)): i for i, p in enumerate(unique_points) }
+
+    for seg in wall_segments:
+        p1, p2 = seg
+        idx1 = point_indices[(round(p1[0], 6), round(p1[1], 6))]
+        idx2 = point_indices[(round(p2[0], 6), round(p2[1], 6))]
+        segments.append((idx1, idx2))
+
+    # 添加边界框的边
+    box_indices = [point_indices[(round(p[0], 6), round(p[1], 6))] for p in box]
+    n = len(box_indices)
+    for i in range(n):
+        segments.append((box_indices[i], box_indices[(i + 1) % n]))
+
+    print("[DEBUG] 顶点数量:", len(unique_points))
+    print("[DEBUG] 线段数量:", len(segments))
+
+    # 检查索引是否越界
+    segments_np = np.array(segments, dtype=int)
+    max_idx = segments_np.max()
+    if max_idx >= len(unique_points):
+        raise ValueError(f"❌ 线段索引 {max_idx} 超出了顶点范围（总顶点数={len(unique_points)}）")
+
+    # 构造输入字典
+    A = dict(
+        vertices=np.array(unique_points, dtype=float),
+        segments=segments_np
+    )
+
+    # print("[DEBUG] 开始三角剖分...")
+    try:
+        B = triangle.triangulate(A, 'p')
+        if 'triangles' not in B:
+            logging.error('❌ 三角剖分失败，未生成任何三角形')
+            print("❌ 三角剖分失败，未生成任何三角形")
+        else:
+            vertices = B['vertices']
+            triangles = B['triangles']
+            # 可视化结果
+            # visualize_plt(vertices, triangles, wall_segments, box)
+
+            # 保存为PLY文件
+            save_triangulation_to_ply(vertices, triangles, filename=output_path, binary=True)
+            print("[SUCCESS] 三角剖分结果已保存为 PLY 文件！")
+    except Exception as e:
+        logging.error(f"【错误】文件 {coco_file_path} 三角剖分失败: {e}", exc_info=True)
+        print(f"【错误】文件 {coco_file_path} 三角剖分失败: {e}")
+
+
+if __name__ == '__main__':
+    OUTPUT_DIR = 'DelaunayTriangleMesh/'
+    COCO_WITH_SCALED_FOLDER = 'coco_with_scaled'
+    for sample_dir in os.listdir(COCO_WITH_SCALED_FOLDER):
+        if sample_dir.startswith('sample'):
+            # e.g. coco_with_scaled/sample0_256/anno
+            anno_dir = os.path.join(COCO_WITH_SCALED_FOLDER, sample_dir, 'anno')
+            
+            # 遍历 anno 目录下的所有 json 文件
+            for json_file in os.listdir(anno_dir):
+                if json_file.endswith('.json'):
+                    # 构造完整的 json 文件路径
+                    json_path = os.path.join(anno_dir, json_file)
+                    # 构造输出路径
+                    output_path = os.path.join(OUTPUT_DIR, sample_dir)
+                    os.makedirs(output_path, exist_ok=True)
+                    # 生成 Delaunay 三角剖分
+                    generate_Delaunay_Mesh(json_path, output_path)
