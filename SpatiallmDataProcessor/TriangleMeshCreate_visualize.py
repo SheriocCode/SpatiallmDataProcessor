@@ -1,75 +1,22 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.tri as mtri
-import triangle
+import triangle  # pip install triangle
 import json
 import os
-from shapely.geometry import Point, Polygon
-from shapely import wkt
+from matplotlib.colors import ListedColormap
 
-def is_point_in_polygon(point, polygon_coords):
-    """精确判断点是否在多边形内（支持凹多边形）"""
-    point_geom = Point(point)
-    poly_geom = Polygon(polygon_coords)
-    return poly_geom.contains(point_geom) or poly_geom.touches(point_geom)
-
-def assign_room_ids_to_triangles(triangles, vertices, annotations):
-    """
-    为每个三角形分配房间ID
-    规则：重心落在哪个原始房间多边形内，就归属该房间
-    """
-    triangle_rooms = np.full(len(triangles), -1, dtype=int)  # -1表示未分配
-    
-    # 预处理房间多边形
-    room_polygons = []
-    room_ids = []
-    for ann in annotations:
-        seg = ann["segmentation"][0]
-        polygon = [(seg[i * 2], seg[i * 2 + 1]) for i in range(len(seg) // 2)]
-        room_polygons.append(polygon)
-        room_ids.append(ann.get('id', ann.get('category_id', -1)))
-    
-    # 为每个三角形分配房间
-    for i, tri in enumerate(triangles):
-        # 计算重心
-        center = vertices[tri].mean(axis=0)
-        # 检查属于哪个房间
-        for j, polygon in enumerate(room_polygons):
-            if is_point_in_polygon(center, polygon):
-                triangle_rooms[i] = room_ids[j]
-                break
-    
-    return triangle_rooms
-
-def generate_room_colors(room_ids):
-    """为每个房间生成唯一颜色"""
-    unique_rooms = np.unique(room_ids)
-    # 使用tab20颜色映射，最多支持20个房间
-    colors = plt.cm.tab20(np.linspace(0, 1, max(len(unique_rooms), 20)))
-    room_color_map = {}
-    for i, room_id in enumerate(unique_rooms):
-        if room_id == -1:
-            room_color_map[room_id] = np.array([0.7, 0.7, 0.7, 1.0])  # 灰色：未分配
-        else:
-            room_color_map[room_id] = colors[i % 20]
-    return room_color_map
-
-def save_colored_ply(vertices, triangles, triangle_rooms, room_color_map, 
-                     filename='colored_mesh.ply', binary=True):
-    """保存带房间颜色的PLY文件"""
+def save_triangulation_to_ply(vertices, triangles, filename='output_mesh.ply', binary=True):
+    """将三角剖分结果保存为 PLY 文件格式"""
     if vertices.ndim == 2 and vertices.shape[1] == 2:
-        vertices = np.hstack([vertices, np.zeros((vertices.shape[0], 1))])
-    
-    num_vertices = len(vertices)
-    num_faces = len(triangles)
-    
-    # 准备面颜色
-    face_colors = np.zeros((num_faces, 3), dtype=np.uint8)
-    for i, room_id in enumerate(triangle_rooms):
-        color = room_color_map.get(room_id, [0.5, 0.5, 0.5, 1])
-        face_colors[i] = (np.array(color[:3]) * 255).astype(np.uint8)
-    
-    # 构建PLY头
+        z = np.zeros((vertices.shape[0], 1), dtype=vertices.dtype)
+        vertices = np.hstack([vertices, z])
+    elif vertices.ndim != 2 or vertices.shape[1] != 3:
+        raise ValueError(f"vertices 必须是 N×2 或 N×3 的数组，但得到了 {vertices.shape}")
+
+    num_vertices = vertices.shape[0]
+    num_faces = triangles.shape[0]
+
     header_lines = [
         "ply",
         "format binary_little_endian 1.0" if binary else "format ascii 1.0",
@@ -79,112 +26,208 @@ def save_colored_ply(vertices, triangles, triangle_rooms, room_color_map,
         "property float z",
         f"element face {num_faces}",
         "property list uchar int vertex_indices",
-        "property uchar red",
-        "property uchar green",
-        "property uchar blue",
         "end_header"
     ]
+
     header = '\n'.join(header_lines) + '\n'
-    
+
     with open(filename, 'wb' if binary else 'w') as f:
         if binary:
             f.write(header.encode('ascii'))
-            f.write(vertices.astype(np.float32).tobytes())
-            for i, face in enumerate(triangles):
-                f.write(np.uint8(3).tobytes())
-                f.write(face.astype(np.int32).tobytes())
-                f.write(face_colors[i].tobytes())
         else:
             f.write(header)
+
+        if binary:
+            vertices_flat = vertices.astype(np.float32).flatten()
+            f.write(vertices_flat.tobytes())
+        else:
             for v in vertices:
                 f.write(f"{v[0]:.6f} {v[1]:.6f} {v[2]:.6f}\n")
-            for i, face in enumerate(triangles):
-                f.write(f"3 {face[0]} {face[1]} {face[2]} "
-                       f"{face_colors[i][0]} {face_colors[i][1]} {face_colors[i][2]}\n")
-    print(f"[INFO] 彩色网格已保存: {os.path.abspath(filename)}")
 
-# ==================== 原始函数保持不变 ====================
+        if binary:
+            for face in triangles:
+                face_header = np.array([3], dtype=np.uint8)
+                face_indices = face.astype(np.int32)
+                f.write(face_header.tobytes())
+                f.write(face_indices.tobytes())
+        else:
+            for face in triangles:
+                f.write(f"3 {face[0]} {face[1]} {face[2]}\n")
+
+    print(f"[INFO] 三角网格已保存为 PLY 文件: {os.path.abspath(filename)}")
+
+
 def line_intersection(seg1, seg2):
     """计算两条线段的交点"""
     (x1, y1), (x2, y2) = seg1
     (x3, y3), (x4, y4) = seg2
+
     denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
-    if denom == 0: return None
-    t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom
-    u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / denom
+    if denom == 0:
+        return None  # 平行线，无交点
+
+    t_num = (x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)
+    t = t_num / denom
+    u_num = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3))
+    u = u_num / denom
+
     if 0 <= t <= 1 and 0 <= u <= 1:
-        return (x1 + t * (x2 - x1), y1 + t * (y2 - y1))
+        x = x1 + t * (x2 - x1)
+        y = y1 + t * (y2 - y1)
+        return (x, y)
     return None
+
 
 def extend_segment_to_bbox(segment, bbox):
     """将线段延伸至边界框"""
     (x1, y1), (x2, y2) = segment
     min_x, min_y = bbox[0]
     max_x, max_y = bbox[2]
+
+    bbox_edges = [
+        [(min_x, min_y), (max_x, min_y)],  # 底边
+        [(max_x, min_y), (max_x, max_y)],  # 右边
+        [(max_x, max_y), (min_x, max_y)],  # 顶边
+        [(min_x, max_y), (min_x, min_y)]   # 左边
+    ]
+
+    dx = x2 - x1
+    dy = y2 - y1
+
+    if dx == 0:
+        x = x1
+        return [(x, min_y), (x, max_y)]
     
-    # 特殊处理垂直/水平线
-    if abs(x2 - x1) < 1e-6:  # 垂直线
-        return [(x1, min_y), (x1, max_y)]
-    if abs(y2 - y1) < 1e-6:  # 水平线
-        return [(min_x, y1), (max_x, y1)]
-    
-    # 计算与边界框的交点
-    m = (y2 - y1) / (x2 - x1)
-    b = y1 - m * x1
-    
+    if dy == 0:
+        y = y1
+        return [(min_x, y), (max_x, y)]
+
     intersections = []
-    # 与左右边界交点
-    y_left = m * min_x + b
-    if min_y <= y_left <= max_y:
-        intersections.append((min_x, y_left))
-    y_right = m * max_x + b
-    if min_y <= y_right <= max_y:
-        intersections.append((max_x, y_right))
-    # 与上下边界交点
-    x_bottom = (min_y - b) / m
-    if min_x <= x_bottom <= max_x:
-        intersections.append((x_bottom, min_y))
-    x_top = (max_y - b) / m
-    if min_x <= x_top <= max_x:
-        intersections.append((x_top, max_y))
-    
-    # 取两个最远的点
+    for edge in bbox_edges:
+        intersect = line_intersection(segment, edge)
+        if intersect:
+            intersections.append(intersect)
+
+    if len(intersections) < 2:
+        m = dy / dx
+        b = y1 - m * x1
+
+        y_left = m * min_x + b
+        y_right = m * max_x + b
+
+        x_bottom = (min_y - b) / m if m != 0 else None
+        x_top = (max_y - b) / m if m != 0 else None
+
+        if min_y <= y_left <= max_y:
+            intersections.append((min_x, y_left))
+        if min_y <= y_right <= max_y:
+            intersections.append((max_x, y_right))
+        if x_bottom is not None and min_x <= x_bottom <= max_x:
+            intersections.append((x_bottom, min_y))
+        if x_top is not None and min_x <= x_top <= max_x:
+            intersections.append((x_top, max_y))
+
     if len(intersections) >= 2:
-        # 计算距离并排序
-        intersections.sort(key=lambda p: (p[0]-x1)**2 + (p[1]-y1)**2)
-        return [intersections[0], intersections[-1]]
+        # 计算每个交点到线段起点的距离
+        dists = [((x - x1)**2 + (y - y1)** 2) for x, y in intersections]
+        # 找到最远点的索引并移除
+        far1_idx = np.argmax(dists)
+        far1 = intersections.pop(far1_idx)
+        
+        # 计算剩余点到far1的距离
+        dists = [((x - far1[0])**2 + (y - far1[1])** 2) for x, y in intersections]
+        # 找到最远点的索引
+        far2_idx = np.argmax(dists)
+        far2 = intersections[far2_idx]
+        
+        return [far1, far2]
+    
     return segment
-# ==================== 主流程 ====================
 
-# 1. 加载数据
-with open('coco_with_scaled/sample0_256/anno/preprocessed_scene_000000.json', 'r', encoding='utf-8') as f:
-    s3d_data = json.load(f)
+def point_in_polygon(point, polygon):
+    """判断点是否在多边形内部（射线法）"""
+    x, y = point
+    n = len(polygon)
+    inside = False
+    for i in range(n):
+        j = (i + 1) % n
+        xi, yi = polygon[i]
+        xj, yj = polygon[j]
+        
+        if ((yi > y) != (yj > y)):
+            x_intersect = (y - yi) * (xj - xi) / (yj - yi) + xi
+            if x < x_intersect:
+                inside = not inside
+    return inside
 
-annotations = [ann for ann in s3d_data['annotations'] if ann['category_id'] not in [0, 1]]
+def assign_triangles_to_rooms(triangles, vertices, room_polygons):
+    """根据room_id将三角形分配到对应的房间"""
+    num_triangles = len(triangles)
+    triangle_room_ids = [-1] * num_triangles  # -1表示未分配（可能是墙体或外部区域）
+    
+    for tri_idx, tri in enumerate(triangles):
+        # 计算三角形重心（用于判断所属房间）
+        p1 = vertices[tri[0]]
+        p2 = vertices[tri[1]]
+        p3 = vertices[tri[2]]
+        centroid = np.mean([p1, p2, p3], axis=0)
+        
+        # 检查重心属于哪个房间的多边形
+        for room_id, polygon in room_polygons.items():
+            if point_in_polygon(centroid, polygon):
+                triangle_room_ids[tri_idx] = room_id
+                break  # 一个三角形只属于一个房间
+    
+    return triangle_room_ids
 
-# 2. 定义边界框
-bbox = [(0, 0), (256, 0), (256, 256), (0, 256)]
-min_x, min_y = 0, 0
-max_x, max_y = 256, 256
+# 加载数据
+with open('coco_with_scaled/sample0_256/anno/scene_000000.json', 'r', encoding='utf-8') as f:
+    coco_data = json.load(f)
+annotations = coco_data.get('annotations', [])
+# 过滤掉不需要的类别（保留有room_id的）
+annotations = [ann for ann in annotations if 'room_id' in ann and ann.get('category_id') not in [0, 1]]
 
-# 3. 提取墙面并延伸
+
+# 定义外包围盒
+box = [
+    (0, 0),
+    (256, 0),
+    (256, 256),
+    (0, 256)
+]
+min_x, min_y = box[0]
+max_x, max_y = box[2]
+
+# 提取所有墙面线段并延伸至边界框
 wall_segments = []
+original_segments = []  # 保存原始线段用于可视化
 all_points = []
-segment_room_ids = []  # 记录每条线段的房间ID
+room_polygons = {}  # 存储房间ID到多边形的映射 {room_id: [(x1,y1), (x2,y2), ...]}
 
 for ann in annotations:
-    seg = ann["segmentation"][0]
+    room_id = ann["room_id"]
+    seg = ann["segmentation"][0]  # coco格式: [x1,y1,x2,y2,...]
     polygon = [(seg[i * 2], seg[i * 2 + 1]) for i in range(len(seg) // 2)]
-    room_id = ann.get('id', ann.get('category_id', -1))
     
-    for i in range(len(polygon)):
-        p1, p2 = polygon[i], polygon[(i + 1) % len(polygon)]
-        extended = extend_segment_to_bbox((p1, p2), bbox)
+    # 保存房间多边形（用于后续三角形分配）
+    if room_id not in room_polygons:
+        room_polygons[room_id] = polygon
+    else:
+        room_polygons[room_id].extend(polygon)  # 处理可能的多段多边形
+    
+    # 提取多边形的边作为墙面线段
+    n = len(polygon)
+    for i in range(n):
+        p1 = polygon[i]
+        p2 = polygon[(i + 1) % n]
+        original_segments.append((p1, p2))  # 保存原始线段
+        # 延伸线段至边界框
+        extended = extend_segment_to_bbox((p1, p2), box)
         wall_segments.append(extended)
         all_points.extend(extended)
-        segment_room_ids.append(room_id)
 
-all_points.extend(bbox)
+# 添加边界框的点
+all_points.extend(box)
 # 去重顶点
 unique_points = []
 seen = set()
@@ -194,95 +237,132 @@ for p in all_points:
         seen.add(key)
         unique_points.append(p)
 
-# 4. 构建线段索引
+# 构建线段索引
 segments = []
 point_indices = { (round(p[0], 6), round(p[1], 6)): i for i, p in enumerate(unique_points) }
 
-for idx, seg in enumerate(wall_segments):
+for seg in wall_segments:
     p1, p2 = seg
     idx1 = point_indices[(round(p1[0], 6), round(p1[1], 6))]
     idx2 = point_indices[(round(p2[0], 6), round(p2[1], 6))]
     segments.append((idx1, idx2))
 
-# 添加边界框边（房间ID设为-1）
-box_indices = [point_indices[(round(p[0], 6), round(p[1], 6))] for p in bbox]
-for i in range(len(box_indices)):
-    segments.append((box_indices[i], box_indices[(i + 1) % len(box_indices)]))
-    segment_room_ids.append(-1)
+# 添加边界框的边
+box_indices = [point_indices[(round(p[0], 6), round(p[1], 6))] for p in box]
+n = len(box_indices)
+for i in range(n):
+    segments.append((box_indices[i], box_indices[(i + 1) % n]))
 
-# 5. 执行约束Delaunay三角剖分
-A = dict(vertices=np.array(unique_points, dtype=float), segments=np.array(segments, dtype=int))
+print("[DEBUG] 顶点数量:", len(unique_points))
+print("[DEBUG] 线段数量:", len(segments))
+print("[DEBUG] 房间数量:", len(room_polygons))
+print("[DEBUG] 房间ID列表:", list(room_polygons.keys()))
+
+# 检查索引是否越界
+segments_np = np.array(segments, dtype=int)
+max_idx = segments_np.max()
+if max_idx >= len(unique_points):
+    raise ValueError(f"❌ 线段索引 {max_idx} 超出了顶点范围（总顶点数={len(unique_points)}）")
+
+# 构造输入字典
+A = dict(
+    vertices=np.array(unique_points, dtype=float),
+    segments=segments_np
+)
+
+print("[DEBUG] 开始三角剖分...")
 B = triangle.triangulate(A, 'p')
+print("[DEBUG] 三角剖分完成!")
 
 if 'triangles' not in B:
-    print("❌ 三角剖分失败")
-    exit()
+    print("❌ 三角剖分失败，未生成任何三角形")
+else:
+    # 可视化结果 - 创建多幅图
+    fig = plt.figure(figsize=(20, 15))
+    
+    # 1. 原始线段图（按房间ID着色）
+    ax1 = fig.add_subplot(221)
+    # 绘制边界框
+    box_x, box_y = zip(*box)
+    ax1.plot(box_x + (box_x[0],), box_y + (box_y[0],), 'r-', linewidth=2, label='边界框')
+    # 为每个房间分配不同颜色绘制原始线段
+    colors = plt.cm.tab10(np.linspace(0, 1, len(room_polygons)))
+    room_color_map = {rid: colors[i] for i, rid in enumerate(room_polygons.keys())}
+    for ann in annotations:
+        rid = ann["room_id"]
+        seg = ann["segmentation"][0]
+        polygon = [(seg[i*2], seg[i*2+1]) for i in range(len(seg)//2)]
+        x, y = zip(*polygon)
+        x += (x[0],)  # 闭合多边形
+        y += (y[0],)
+        ax1.plot(x, y, '-', color=room_color_map[rid], linewidth=1.5, 
+                label=f'房间 {rid}' if rid not in [l.get_label() for l in ax1.get_legend_handles_labels()[0]] else "")
+    ax1.set_aspect('equal')
+    ax1.legend()
+    ax1.set_title('1. 原始房间边界（按room_id着色）')
+    
+    # 2. 延伸后的线段图
+    ax2 = fig.add_subplot(222)
+    # 绘制边界框
+    ax2.plot(box_x + (box_x[0],), box_y + (box_y[0],), 'r-', linewidth=2, label='边界框')
+    # 绘制延伸后的墙面线段
+    for seg in wall_segments:
+        x, y = zip(*seg)
+        ax2.plot(x, y, 'g-', linewidth=1.5, label='延伸后墙面线段' if ax2.get_legend_handles_labels()[1] == [] else "")
+    ax2.set_aspect('equal')
+    ax2.legend()
+    ax2.set_title('2. 延伸至边界框的墙面线段')
+    
+    # 3. 三角剖分结果
+    ax3 = fig.add_subplot(223)
+    vertices = B['vertices']
+    triangles = B['triangles']
+    triang = mtri.Triangulation(vertices[:, 0], vertices[:, 1], triangles)
+    ax3.triplot(triang, color='lightblue', linewidth=0.5)
+    ax3.plot(vertices[:, 0], vertices[:, 1], 'o', color='red', markersize=2)
+    # 绘制边界框
+    ax3.plot(box_x + (box_x[0],), box_y + (box_y[0],), 'r-', linewidth=2, label='边界框')
+    ax3.set_aspect('equal')
+    ax3.legend()
+    ax3.set_title('3. 约束Delaunay三角剖分结果')
+    
+    # 4. 按房间着色的三角剖分结果（基于room_id）
+    ax4 = fig.add_subplot(224)
+    # 将三角形分配到对应的房间
+    triangle_room_ids = assign_triangles_to_rooms(triangles, vertices, room_polygons)
+    
+    # 创建颜色映射（使用与图1相同的颜色方案）
+    cmap_colors = [room_color_map[rid] for rid in sorted(room_polygons.keys())]
+    # 添加一个用于未分配区域（墙体/外部）的颜色
+    cmap_colors.append([0.8, 0.8, 0.8])  # 灰色
+    cmap = ListedColormap(cmap_colors)
+    
+    # 绘制着色的三角形
+    # 调整ID以匹配颜色索引（未分配区域使用最后一个颜色）
+    adjusted_ids = [rid if rid != -1 else len(room_polygons) for rid in triangle_room_ids]
+    ax4.tripcolor(triang, adjusted_ids, cmap=cmap, alpha=0.7)
+    # 绘制三角形边界
+    ax4.triplot(triang, color='k', linewidth=0.5)
+    # 绘制边界框
+    ax4.plot(box_x + (box_x[0],), box_y + (box_y[0],), 'r-', linewidth=2, label='边界框')
+    # 绘制墙面线段
+    for seg in wall_segments:
+        x, y = zip(*seg)
+        ax4.plot(x, y, 'g-', linewidth=1.5, label='墙面线段' if ax4.get_legend_handles_labels()[1] == [] else "")
+    
+    # 添加图例
+    handles = [plt.Rectangle((0,0),1,1, facecolor=color) for color in cmap_colors[:-1]]
+    labels = [f'房间 {rid}' for rid in sorted(room_polygons.keys())]
+    handles.append(plt.Rectangle((0,0),1,1, facecolor=cmap_colors[-1]))
+    labels.append('墙体/外部区域')
+    ax4.legend(handles, labels, loc='best')
+    
+    ax4.set_aspect('equal')
+    ax4.set_title(f'4. 按房间着色的三角剖分结果（共{len(room_polygons)}个房间）')
+    
+    plt.tight_layout()
+    plt.show()
 
-vertices = B['vertices']
-triangles = B['triangles']
-
-# 6. 为三角形分配房间ID
-print("[INFO] 正在分配房间ID到三角形...")
-triangle_rooms = assign_room_ids_to_triangles(triangles, vertices, annotations)
-room_color_map = generate_room_colors(triangle_rooms)
-
-# 7. 三阶段可视化
-fig, axes = plt.subplots(1, 3, figsize=(20, 7))
-
-# 子图1：原始房间布局
-ax1 = axes[0]
-ax1.set_title('原始房间布局', fontsize=12, fontweight='bold')
-for ann in annotations:
-    seg = ann["segmentation"][0]
-    polygon = [(seg[i * 2], seg[i * 2 + 1]) for i in range(len(seg) // 2)]
-    room_id = ann.get('id', ann.get('category_id', -1))
-    color = room_color_map.get(room_id, [0.5, 0.5, 0.5, 1])
-    poly = plt.Polygon(polygon, facecolor=color[:3], alpha=0.6, edgecolor='black', linewidth=1.5)
-    ax1.add_patch(poly)
-ax1.set_aspect('equal')
-ax1.set_xlim(-10, 266)
-ax1.set_ylim(-10, 266)
-ax1.grid(True, alpha=0.3)
-
-# 子图2：延伸后的墙面线段
-ax2 = axes[1]
-ax2.set_title('延伸后的墙面线段', fontsize=12, fontweight='bold')
-for idx, seg in enumerate(wall_segments):
-    room_id = segment_room_ids[idx]
-    color = room_color_map.get(room_id, [0.5, 0.5, 0.5, 1])
-    x, y = zip(*seg)
-    ax2.plot(x, y, '-', color=color[:3], linewidth=2, alpha=0.8)
-# 绘制边界框
-box_x, box_y = zip(*bbox)
-ax2.plot(box_x + (box_x[0],), box_y + (box_y[0],), 'r-', linewidth=3, label='边界框')
-ax2.legend()
-ax2.set_aspect('equal')
-ax2.grid(True, alpha=0.3)
-
-# 子图3：按房间着色的三角剖分
-ax3 = axes[2]
-ax3.set_title('按房间着色的三角剖分', fontsize=12, fontweight='bold')
-# 绘制所有顶点
-ax3.plot(vertices[:, 0], vertices[:, 1], 'o', color='black', markersize=1, alpha=0.3)
-
-# 按房间绘制三角形
-for room_id in np.unique(triangle_rooms):
-    mask = triangle_rooms == room_id
-    color = room_color_map.get(room_id, [0.7, 0.7, 0.7, 1])
-    room_tri = mtri.Triangulation(vertices[:, 0], vertices[:, 1], triangles[mask])
-    ax3.triplot(room_tri, color=color[:3], linewidth=0.7, alpha=0.9)
-
-ax3.set_aspect('equal')
-ax3.grid(True, alpha=0.3)
-
-plt.tight_layout()
-plt.show()
-
-# 8. 保存彩色PLY文件
-save_colored_ply(vertices, triangles, triangle_rooms, room_color_map, 
-                 filename='room_colored_mesh.ply', binary=True)
-
-print(f"[SUCCESS] 处理完成！")
-print(f"   - 顶点数: {len(vertices)}")
-print(f"   - 三角形数: {len(triangles)}")
-print(f"   - 房间数: {len([r for r in np.unique(triangle_rooms) if r != -1])}")
+    # 保存为PLY文件（可包含房间ID信息）
+    save_triangulation_to_ply(vertices, triangles, filename='room_colored_mesh.ply', binary=True)
+    print("[SUCCESS] 三角剖分结果已保存为 PLY 文件！")

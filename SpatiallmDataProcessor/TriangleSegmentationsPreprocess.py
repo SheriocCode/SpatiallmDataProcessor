@@ -5,7 +5,7 @@ import json
 import logging
 
 logging.basicConfig(
-    filename='.log',
+    filename='TriangleSegmentationsPreprocess.log',
     level=logging.DEBUG,
     format='%(asctime)s | %(levelname)s | %(message)s',
     filemode='w'
@@ -20,6 +20,9 @@ def check_and_fix_segmentation(segmentation, angle_tolerance=5):
     """
     # 先检查无效线段
     invalid = check_segment_angles(segmentation, angle_tolerance)
+    logging.info('(check_and_fix_segmentation)')
+    for item in invalid:
+        logging.info(item)
     
     # 复制原始顶点用于修正（避免修改原列表）
     fixed_vertices = [list(vertex) for vertex in segmentation.copy()]  # 转为列表方便修改
@@ -35,10 +38,11 @@ def check_and_fix_segmentation(segmentation, angle_tolerance=5):
             (x2, y2) = seg['end_vertex']
             
             # 判断接近水平（0°）还是垂直（90°）
-            if abs(angle - 0) < abs(angle - 90):
+            if min(abs(angle - 0), abs(angle-180))< abs(angle - 90):
                 # 修复为水平线段（y坐标统一）
                 # 取两点y的平均值（或可改为保留start/end的y，如y1）
-                fixed_y = round((y1 + y2) / 2, 1)  # 保留1位小数避免浮点数误差
+                # fixed_y = round((y1 + y2) / 2, 1)  # 保留1位小数避免浮点数误差
+                fixed_y = y1
                 # 更新两个顶点的y坐标
                 fixed_vertices[start_idx][1] = fixed_y
                 fixed_vertices[end_idx][1] = fixed_y
@@ -94,7 +98,8 @@ def check_segment_angles(segmentation, angle_tolerance=5):
                 'end_index': (i + 1) % len(segmentation),
                 'angle': round(angle, 4) if angle is not None else None,
                 'issue': "极小偏差（接近水平/垂直但不严格符合）" if (
-                    angle is not None and (abs(angle - 0) < angle_tolerance or abs(angle - 90) < angle_tolerance)
+                    angle is not None and (abs(angle - 0) < angle_tolerance or abs(angle - 90) < angle_tolerance
+                                           or abs(angle -180) < angle_tolerance)
                 ) else "角度不符合条件"
             })
     
@@ -110,6 +115,7 @@ def process_single_file(json_path):
     for anno in annotations:
         segmentation = anno["segmentation"][0]
         segmentation_id = anno["id"]
+        segmentation_room_id = anno["room_id"]
         # ==========================检查逻辑==========================
         # 转换为顶点列表
         test_segmentation = [(segmentation[i], segmentation[i + 1]) for i in range(0, len(segmentation), 2)]
@@ -130,7 +136,7 @@ def process_single_file(json_path):
         if not records:
             continue
         
-        logging.info(f"====修复segmentation_id:{segmentation_id}====")
+        logging.info(f"====修复segmentation_id:{segmentation_id}, segmentation_room_id:{segmentation_room_id}====")
         logging.info('原始顶点列表:')
         logging.info(raw_vertexs_list)
 

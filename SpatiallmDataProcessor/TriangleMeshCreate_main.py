@@ -100,6 +100,7 @@ def extend_segment_to_bbox(segment, bbox):
     dy = y2 - y1
 
     # 如果是垂直线
+    # if abs(dx) <= 2: 
     if dx == 0:
         x = x1
         y_min = min(y1, y2)
@@ -107,6 +108,7 @@ def extend_segment_to_bbox(segment, bbox):
         return [(x, min_y), (x, max_y)]
     
     # 如果是水平线
+    # if abs(dy) <= 2: 
     if dy == 0:
         y = y1
         x_min = min(x1, x2)
@@ -159,14 +161,14 @@ def extend_segment_to_bbox(segment, bbox):
 
 
 # 从文件加载 S3D.json
-# with open('s3d/00000.json', 'r', encoding='utf-8') as f:
+# with open('../TriangleMeshCreate/s3d/00002.json', 'r', encoding='utf-8') as f:
 #     coco_data = json.load(f)
 # annotations = coco_data.get('annotations', [])
 # # 排除 id 为 16 和 17 的 annotation（门/窗）
 # annotations = [ann for ann in annotations if ann['category_id'] not in [16, 17]]
 
 # 加载 coco_with_scaled 数据
-with open('coco_with_scaled/sample0_256/anno/scene_000000_manual_repaired.json', 'r', encoding='utf-8') as f:
+with open('coco_with_scaled/sample0_256/anno/scene_000000.json', 'r', encoding='utf-8') as f:
     coco_data = json.load(f)
 annotations = coco_data.get('annotations', [])
 annotations = [ann for ann in annotations if ann['category_id'] not in [0, 1]]
