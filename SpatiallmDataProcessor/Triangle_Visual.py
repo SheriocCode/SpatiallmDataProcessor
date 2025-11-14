@@ -1,3 +1,17 @@
+"""
+Triangle_Visual.py
+7张子图展示：
+    1. 原始点云密度图
+    2. 房间边界与边界框
+    3. 延伸至边界的墙面线段
+    4. 约束Delaunay三角剖分结果
+    5. 按房间着色的三角网格
+    6. COCO标注叠加密度图（带房间分组颜色
+    7. COCO标注+三角剖分叠加显示
+
+- 固定随机种子(seed=42)确保颜色一致性
+"""
+
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.tri as mtri
@@ -11,7 +25,6 @@ import random
 
 # 复用原有功能函数
 def save_triangulation_to_ply(vertices, triangles, filename='output_mesh.ply', binary=True):
-    """将三角剖分结果保存为 PLY 文件格式"""
     if vertices.ndim == 2 and vertices.shape[1] == 2:
         z = np.zeros((vertices.shape[0], 1), dtype=vertices.dtype)
         vertices = np.hstack([vertices, z])
@@ -62,7 +75,6 @@ def save_triangulation_to_ply(vertices, triangles, filename='output_mesh.ply', b
 
 
 def line_intersection(seg1, seg2):
-    """计算两条线段的交点"""
     (x1, y1), (x2, y2) = seg1
     (x3, y3), (x4, y4) = seg2
 
@@ -83,7 +95,6 @@ def line_intersection(seg1, seg2):
 
 
 def extend_segment_to_bbox(segment, bbox):
-    """将线段延伸至边界框"""
     (x1, y1), (x2, y2) = segment
     min_x, min_y = bbox[0]
     max_x, max_y = bbox[2]
@@ -132,15 +143,11 @@ def extend_segment_to_bbox(segment, bbox):
             intersections.append((x_top, max_y))
 
     if len(intersections) >= 2:
-        # 计算每个交点到线段起点的距离
         dists = [((x - x1)**2 + (y - y1)** 2) for x, y in intersections]
-        # 找到最远点的索引并移除
         far1_idx = np.argmax(dists)
         far1 = intersections.pop(far1_idx)
         
-        # 计算剩余点到far1的距离
         dists = [((x - far1[0])**2 + (y - far1[1])** 2) for x, y in intersections]
-        # 找到最远点的索引
         far2_idx = np.argmax(dists)
         far2 = intersections[far2_idx]
         
@@ -149,7 +156,6 @@ def extend_segment_to_bbox(segment, bbox):
     return segment
 
 def point_in_polygon(point, polygon):
-    """判断点是否在多边形内部（射线法）"""
     x, y = point
     n = len(polygon)
     inside = False
@@ -165,44 +171,390 @@ def point_in_polygon(point, polygon):
     return inside
 
 def assign_triangles_to_rooms(triangles, vertices, room_polygons):
-    """根据room_id将三角形分配到对应的房间"""
     num_triangles = len(triangles)
-    triangle_room_ids = [-1] * num_triangles  # -1表示未分配（可能是墙体或外部区域）
+    triangle_room_ids = [-1] * num_triangles
     
     for tri_idx, tri in enumerate(triangles):
-        # 计算三角形重心（用于判断所属房间）
         p1 = vertices[tri[0]]
         p2 = vertices[tri[1]]
         p3 = vertices[tri[2]]
         centroid = np.mean([p1, p2, p3], axis=0)
         
-        # 检查重心属于哪个房间的多边形
         for room_id, polygon in room_polygons.items():
             if point_in_polygon(centroid, polygon):
                 triangle_room_ids[tri_idx] = room_id
-                break  # 一个三角形只属于一个房间
+                break
     
     return triangle_room_ids
 
 def calculate_area(poly):
-    """计算多边形面积"""
     if len(poly) < 3:
         return 0
     return cv2.contourArea(poly.astype(np.int32))
 
+# 存储每个子图的绘制函数和数据，用于放大显示
+subplot_data = []
+
+def draw_subplot_1(ax, density_image):
+    flipped_image = np.flipud(density_image)
+    ax.imshow(flipped_image)
+    ax.set_title('1. 点云密度图', fontsize=12)
+    ax.axis('off')
+
+def draw_subplot_2(ax, box, annotations_filtered, room_color_map):
+    box_x, box_y = zip(*box)
+    ax.plot(box_x + (box_x[0],), box_y + (box_y[0],), 'r-', linewidth=2, label='边界框')
+    for ann in annotations_filtered:
+        rid = ann["room_id"]
+        seg = ann["segmentation"][0]
+        polygon = [(seg[i*2], seg[i*2+1]) for i in range(len(seg)//2)]
+        x, y = zip(*polygon)
+        x += (x[0],)
+        y += (y[0],)
+        ax.plot(x, y, '-', color=room_color_map[rid], linewidth=1.5,
+                label=f'房间 {rid}' if rid not in [l.get_label() for l in ax.get_legend_handles_labels()[0]] else "")
+    ax.set_aspect('equal')
+    ax.legend(fontsize=10)
+    ax.set_title('2. 原始房间边界', fontsize=12)
+
+def draw_subplot_3(ax, box, wall_segments):
+    box_x, box_y = zip(*box)
+    ax.plot(box_x + (box_x[0],), box_y + (box_y[0],), 'r-', linewidth=2, label='边界框')
+    for seg in wall_segments:
+        x, y = zip(*seg)
+        ax.plot(x, y, 'g-', linewidth=1.5, label='延伸后墙面线段' if ax.get_legend_handles_labels()[1] == [] else "")
+    ax.set_aspect('equal')
+    ax.legend(fontsize=10)
+    ax.set_title('3. 延伸至边界的墙面线段', fontsize=12)
+
+def draw_subplot_4(ax, box, triang, vertices):
+    ax.triplot(triang, color='lightblue', linewidth=0.5)
+    ax.plot(vertices[:, 0], vertices[:, 1], 'o', color='red', markersize=2)
+    box_x, box_y = zip(*box)
+    ax.plot(box_x + (box_x[0],), box_y + (box_y[0],), 'r-', linewidth=2, label='边界框')
+    ax.set_aspect('equal')
+    ax.legend(fontsize=10)
+    ax.set_title('4. 约束Delaunay三角剖分结果', fontsize=12)
+
+def draw_subplot_5(ax, box, triang, adjusted_ids, cmap, wall_segments, room_polygons, cmap_colors):
+    ax.tripcolor(triang, adjusted_ids, cmap=cmap, alpha=0.7)
+    ax.triplot(triang, color='k', linewidth=0.5)
+    box_x, box_y = zip(*box)
+    ax.plot(box_x + (box_x[0],), box_y + (box_y[0],), 'r-', linewidth=2, label='边界框')
+    for seg in wall_segments:
+        x, y = zip(*seg)
+        ax.plot(x, y, 'g-', linewidth=1.5, label='墙面线段' if ax.get_legend_handles_labels()[1] == [] else "")
+    handles = [plt.Rectangle((0,0),1,1, facecolor=color) for color in cmap_colors[:-1]]
+    labels = [f'房间 {rid}' for rid in sorted(room_polygons.keys())]
+    handles.append(plt.Rectangle((0,0),1,1, facecolor=cmap_colors[-1]))
+    labels.append('墙体/外部区域')
+    ax.legend(handles, labels, loc='best', fontsize=8)
+    ax.set_aspect('equal')
+    ax.set_title('5. 按房间着色的三角剖分结果', fontsize=12)
+
+def draw_subplot_6(ax, density_image, annotations, categories, image_height):
+    """
+    在点云密度图上绘制COCO格式标注（子图6）
+    
+    该函数将房间、墙体、门窗等标注以不同样式绘制在密度图上：
+    - 房间：半透明填充多边形 + 虚线边界框
+    - 门窗：加粗线段 + 白色端点标记
+    - 所有标注均包含白色背景标签
+    
+    参数:
+        ax (matplotlib.axes.Axes): 目标绘图轴对象
+        density_image (numpy.ndarray): 点云密度图数据 (H×W×3)
+        annotations (list): COCO标注列表，每个元素为包含segmentation、bbox等信息的字典
+        categories (list): 类别定义列表，元素为{'id': int, 'name': str}格式
+        image_height (int): 图像高度，用于Y坐标翻转校正
+    
+    功能特性:
+        - 使用随机种子42确保颜色一致性
+        - 按room_id分组，同一房间使用相近色系
+        - 自动识别线段标注(area=0或坐标数<6)
+        - 动态生成带类别名的图例
+    """
+    random.seed(42)
+    
+    # 翻转图像
+    flipped_image = np.flipud(density_image)
+    ax.imshow(flipped_image)
+    
+    # 创建基础颜色映射（确定性）
+    category_ids = sorted(set(ann['category_id'] for ann in annotations))
+    np.random.seed(42)
+    base_color_map = {cat_id: np.random.rand(3,) for cat_id in category_ids}
+    cat_id_to_name = {cat['id']: cat['name'] for cat in categories}
+    
+    # 按room_id分组标注
+    annotations_by_room = {}
+    for ann in annotations:
+        room_id = ann.get('room_id', 0)
+        if room_id not in annotations_by_room:
+            annotations_by_room[room_id] = []
+        annotations_by_room[room_id].append(ann)
+    
+    # 收集图例项
+    legend_items = {}
+    
+    # 绘制每个房间的标注
+    for room_id, anns in annotations_by_room.items():
+        # 为每个房间生成颜色偏移（确定性）
+        room_color_shift = random.uniform(0.4, 1.0)
+        
+        for ann in anns:
+            cat_id = ann['category_id']
+            cat_name = cat_id_to_name.get(cat_id, f'类别 {cat_id}' if cat_id not in [0, 1] else f'类别{cat_id}(Door/Window)')
+            base_color = base_color_map[cat_id]
+            final_color = tuple(min(1.0, c * room_color_shift) for c in base_color)
+            
+            # 判断是否为线段标注
+            is_line = (ann.get('area', 0) == 0 or 
+                      len(ann.get('segmentation', [[]])[0]) < 6 or
+                      ann.get('bbox', [0,0,0,0])[3] == 0)
+            
+            # 绘制线段（door/window）
+            if is_line:
+                for seg in ann['segmentation']:
+                    if len(seg) < 4:
+                        continue
+                    points = np.array(seg).reshape(-1, 2)
+                    points[:, 1] = image_height - points[:, 1]  # 翻转y坐标
+                    
+                    if len(points) == 2:  # 线段
+                        ax.plot(points[:, 0], points[:, 1], 
+                                color=final_color, 
+                                linewidth=3,
+                                marker='o', markersize=5,
+                                markerfacecolor='white',
+                                markeredgecolor=final_color,
+                                markeredgewidth=1.5)
+                        
+                        # 中点标签
+                        mid = points.mean(axis=0)
+                        label = f"Room{room_id}-{cat_name}"
+                        ax.text(mid[0], mid[1] - 8, label, 
+                                color='white', fontsize=7, ha='center',
+                                bbox=dict(boxstyle='round', facecolor=final_color, 
+                                         alpha=0.85, edgecolor='white', linewidth=0.5))
+            
+            # 绘制多边形（房间）
+            else:
+                for seg in ann['segmentation']:
+                    if len(seg) < 6:
+                        continue
+                    poly = np.array(seg).reshape(-1, 2)
+                    poly[:, 1] = image_height - poly[:, 1]  # 翻转y坐标
+                    
+                    if len(poly) < 3 or cv2.contourArea(poly.astype(np.int32)) < 1.0:
+                        continue
+                    
+                    # 填充多边形
+                    patch = Polygon(poly, closed=True, 
+                                   facecolor=final_color, 
+                                   alpha=0.4, 
+                                   edgecolor='white', 
+                                   linewidth=1)
+                    ax.add_patch(patch)
+                
+                # 绘制边界框
+                if 'bbox' in ann and len(ann['bbox']) == 4:
+                    x, y, w, h = ann['bbox']
+                    y = image_height - y - h
+                    rect = plt.Rectangle((x, y), w, h, 
+                                       linewidth=2,
+                                       edgecolor=final_color, 
+                                       facecolor='none',
+                                       linestyle='--')
+                    ax.add_patch(rect)
+                    
+                    # 标签
+                    label = f"Room{room_id}-{cat_name}"
+                    ax.text(x, y - 5, label, 
+                            color='white', fontsize=7, ha='left',
+                            bbox=dict(boxstyle='round', facecolor=final_color, 
+                                     alpha=0.85, edgecolor='white', linewidth=0.5))
+            
+            # 记录图例
+            if cat_name not in legend_items:
+                legend_items[cat_name] = plt.Rectangle((0,0),1,1, facecolor=base_color, alpha=0.4)
+    
+    # 添加图例
+    if legend_items:
+        ax.legend(legend_items.values(), legend_items.keys(), 
+                 loc='best', fontsize=8, framealpha=0.9)
+    
+    ax.set_title('6. 点云密度图与标注', fontsize=12)
+    ax.axis('off')
+
+
+def draw_subplot_7(ax, density_image, triang, adjusted_ids, cmap, annotations, categories, image_height):
+    """
+    在点云密度图上叠加三角剖分结果和COCO标注（子图7）
+    
+    与draw_subplot_6类似，但额外显示：
+    - 底层三角网格 (30%透明度)
+    - 房间区域按三角剖分ID着色
+    - 标注覆盖在三角网格之上
+    
+    参数:
+        ax (matplotlib.axes.Axes): 目标绘图轴对象
+        density_image (numpy.ndarray): 点云密度图数据 (H×W×3)
+        triang (matplotlib.tri.Triangulation): 三角剖分对象
+        adjusted_ids (list): 三角形所属房间ID列表
+        cmap (matplotlib.colors.ListedColormap): 房间颜色映射表
+        annotations (list): COCO标注列表
+        categories (list): 类别定义列表
+        image_height (int): 图像高度，用于Y坐标翻转
+    
+    坐标处理:
+        - 三角网格顶点Y坐标会翻转匹配图像坐标系
+        - 标注坐标同步翻转保持对齐
+    """
+    random.seed(42)
+    
+    # 翻转图像
+    flipped_image = np.flipud(density_image)
+    ax.imshow(flipped_image)
+    
+    # 三角剖分坐标翻转
+    tri_vertices = np.array([triang.x, triang.y]).T
+    tri_vertices[:, 1] = image_height - tri_vertices[:, 1]
+    flipped_triang = mtri.Triangulation(
+        tri_vertices[:, 0], 
+        tri_vertices[:, 1], 
+        triang.triangles
+    )
+    ax.tripcolor(flipped_triang, adjusted_ids, cmap=cmap, alpha=0.3)
+    ax.triplot(flipped_triang, color='k', linewidth=0.3, alpha=0.5)
+    
+    # 创建基础颜色映射（确定性）
+    category_ids = sorted(set(ann['category_id'] for ann in annotations))
+    np.random.seed(42)
+    base_color_map = {cat_id: np.random.rand(3,) for cat_id in category_ids}
+    cat_id_to_name = {cat['id']: cat['name'] for cat in categories}
+    
+    # 按room_id分组标注
+    annotations_by_room = {}
+    for ann in annotations:
+        room_id = ann.get('room_id', 0)
+        if room_id not in annotations_by_room:
+            annotations_by_room[room_id] = []
+        annotations_by_room[room_id].append(ann)
+    
+    # 收集图例项
+    legend_items = {}
+    
+    # 绘制每个房间的标注
+    for room_id, anns in annotations_by_room.items():
+        # 为每个房间生成颜色偏移（确定性）
+        room_color_shift = random.uniform(0.4, 1.0)
+        
+        for ann in anns:
+            cat_id = ann['category_id']
+            cat_name = cat_id_to_name.get(cat_id, f'类别 {cat_id}')
+            base_color = base_color_map[cat_id]
+            final_color = tuple(min(1.0, c * room_color_shift) for c in base_color)
+            
+            # 判断是否为线段标注
+            is_line = (ann.get('area', 0) == 0 or 
+                      len(ann.get('segmentation', [[]])[0]) < 6 or
+                      ann.get('bbox', [0,0,0,0])[3] == 0)
+            
+            # 绘制线段（door/window）
+            if is_line:
+                for seg in ann['segmentation']:
+                    if len(seg) < 4:
+                        continue
+                    points = np.array(seg).reshape(-1, 2)
+                    points[:, 1] = image_height - points[:, 1]
+                    
+                    if len(points) == 2:  # 线段
+                        ax.plot(points[:, 0], points[:, 1], 
+                                color=final_color, 
+                                linewidth=3,
+                                marker='o', markersize=5,
+                                markerfacecolor='white',
+                                markeredgecolor=final_color,
+                                markeredgewidth=1.5)
+            
+            # 绘制多边形（房间）
+            else:
+                for seg in ann['segmentation']:
+                    if len(seg) < 6:
+                        continue
+                    poly = np.array(seg).reshape(-1, 2)
+                    poly[:, 1] = image_height - poly[:, 1]
+                    
+                    if len(poly) < 3 or cv2.contourArea(poly.astype(np.int32)) < 1.0:
+                        continue
+                    
+                    # 填充多边形
+                    patch = Polygon(poly, closed=True, 
+                                   facecolor=final_color, 
+                                   alpha=0.5, 
+                                   edgecolor='white', 
+                                   linewidth=1.5)
+                    ax.add_patch(patch)
+                
+                # 绘制边界框
+                if 'bbox' in ann and len(ann['bbox']) == 4:
+                    x, y, w, h = ann['bbox']
+                    y = image_height - y - h
+                    rect = plt.Rectangle((x, y), w, h, 
+                                       linewidth=2,
+                                       edgecolor=final_color, 
+                                       facecolor='none',
+                                       linestyle='--')
+                    ax.add_patch(rect)
+            
+            # 记录图例
+            if cat_name not in legend_items:
+                legend_items[cat_name] = plt.Rectangle((0,0),1,1, facecolor=base_color, alpha=0.4)
+    
+    # 添加图例
+    if legend_items:
+        ax.legend(legend_items.values(), legend_items.keys(), 
+                 loc='best', fontsize=8, framealpha=0.9)
+    
+    ax.set_title('7. 点云密度图+标注+三角剖分', fontsize=12)
+    ax.axis('off')
+
+# 点击事件处理函数 - 放大显示子图
+def on_click(event):
+    if event.inaxes is None:  # 点击不在任何子图上
+        return
+    
+    # 找到被点击的子图索引
+    for i, ax in enumerate(fig.axes):
+        if ax == event.inaxes:
+            # 创建新窗口显示放大后的子图
+            zoom_fig, zoom_ax = plt.subplots(figsize=(10, 10))
+            # 调用对应的绘制函数
+            subplot_data[i](zoom_ax)
+            zoom_fig.tight_layout()
+            zoom_fig.canvas.manager.set_window_title(f'放大视图: {zoom_ax.get_title()}')
+            plt.show()
+            break
+
 def visualize_combined_results(json_path, density_map_path, output_ply="combined_mesh.ply"):
-    """整合所有可视化需求"""
+    global fig, subplot_data  # 全局变量用于事件处理
+    
     # 1. 加载数据
     with open(json_path, 'r', encoding='utf-8') as f:
         coco_data = json.load(f)
+    
+    # 提取COCO数据中的关键部分
     annotations = coco_data.get('annotations', [])
+    categories = coco_data.get('categories', [])  # 获取类别信息
     annotations_filtered = [ann for ann in annotations if 'room_id' in ann and ann.get('category_id') not in [0, 1]]
     
-    # 读取点云密度图
+    # 读取点云密度图并获取图像高度（用于坐标转换）
     density_image = cv2.imread(density_map_path, cv2.IMREAD_COLOR)
     if density_image is None:
         raise ValueError(f"无法读取密度图: {density_map_path}")
     density_image = cv2.cvtColor(density_image, cv2.COLOR_BGR2RGB)
+    image_height = density_image.shape[0]  # 获取图像高度，用于后续坐标转换
     
     # 定义外包围盒
     box = [(0, 0), (256, 0), (256, 256), (0, 256)]
@@ -299,191 +651,54 @@ def visualize_combined_results(json_path, density_map_path, output_ply="combined
     cmap = ListedColormap(cmap_colors)
     adjusted_ids = [rid if rid != -1 else len(room_polygons) for rid in triangle_room_ids]
     
-    # 为COCO标注创建颜色映射
-    category_ids = set(ann['category_id'] for ann in coco_data['annotations'])
-    color_map = {cat_id: np.random.rand(3,) for cat_id in category_ids}
-    annotations_by_room = {}
-    for ann in coco_data['annotations']:
-        room_id = ann.get('room_id', 0)
-        if room_id not in annotations_by_room:
-            annotations_by_room[room_id] = []
-        annotations_by_room[room_id].append(ann)
+    # 存储每个子图的绘制函数（带参数）
+    subplot_data = [
+        lambda ax: draw_subplot_1(ax, density_image),
+        lambda ax: draw_subplot_2(ax, box, annotations_filtered, room_color_map),
+        lambda ax: draw_subplot_3(ax, box, wall_segments),
+        lambda ax: draw_subplot_4(ax, box, triang, vertices),
+        lambda ax: draw_subplot_5(ax, box, triang, adjusted_ids, cmap, wall_segments, room_polygons, cmap_colors),
+        lambda ax: draw_subplot_6(ax, density_image, annotations, categories, image_height),
+        lambda ax: draw_subplot_7(ax, density_image, triang, adjusted_ids, cmap, annotations, categories, image_height)
+    ]
     
     # 创建7个子图
     fig = plt.figure(figsize=(24, 18))
     
-    # 1. 点云密度图
+    # 绘制子图
     ax1 = fig.add_subplot(331)
-    ax1.imshow(density_image)
-    ax1.set_title('1. 点云密度图')
-    ax1.axis('off')
+    subplot_data[0](ax1)
     
-    # 2. 原始房间边界
     ax2 = fig.add_subplot(332)
-    box_x, box_y = zip(*box)
-    ax2.plot(box_x + (box_x[0],), box_y + (box_y[0],), 'r-', linewidth=2, label='边界框')
-    for ann in annotations_filtered:
-        rid = ann["room_id"]
-        seg = ann["segmentation"][0]
-        polygon = [(seg[i*2], seg[i*2+1]) for i in range(len(seg)//2)]
-        x, y = zip(*polygon)
-        x += (x[0],)
-        y += (y[0],)
-        ax2.plot(x, y, '-', color=room_color_map[rid], linewidth=1.5,
-                label=f'房间 {rid}' if rid not in [l.get_label() for l in ax2.get_legend_handles_labels()[0]] else "")
-    ax2.set_aspect('equal')
-    ax2.legend()
-    ax2.set_title('2. 原始房间边界')
+    subplot_data[1](ax2)
     
-    # 3. 延伸至边界的墙面线段
     ax3 = fig.add_subplot(333)
-    ax3.plot(box_x + (box_x[0],), box_y + (box_y[0],), 'r-', linewidth=2, label='边界框')
-    for seg in wall_segments:
-        x, y = zip(*seg)
-        ax3.plot(x, y, 'g-', linewidth=1.5, label='延伸后墙面线段' if ax3.get_legend_handles_labels()[1] == [] else "")
-    ax3.set_aspect('equal')
-    ax3.legend()
-    ax3.set_title('3. 延伸至边界的墙面线段')
+    subplot_data[2](ax3)
     
-    # 4. 约束Delaunay三角剖分结果
     ax4 = fig.add_subplot(334)
-    ax4.triplot(triang, color='lightblue', linewidth=0.5)
-    ax4.plot(vertices[:, 0], vertices[:, 1], 'o', color='red', markersize=2)
-    ax4.plot(box_x + (box_x[0],), box_y + (box_y[0],), 'r-', linewidth=2, label='边界框')
-    ax4.set_aspect('equal')
-    ax4.legend()
-    ax4.set_title('4. 约束Delaunay三角剖分结果')
+    subplot_data[3](ax4)
     
-    # 5. 按房间着色的三角剖分结果
     ax5 = fig.add_subplot(335)
-    ax5.tripcolor(triang, adjusted_ids, cmap=cmap, alpha=0.7)
-    ax5.triplot(triang, color='k', linewidth=0.5)
-    ax5.plot(box_x + (box_x[0],), box_y + (box_y[0],), 'r-', linewidth=2, label='边界框')
-    for seg in wall_segments:
-        x, y = zip(*seg)
-        ax5.plot(x, y, 'g-', linewidth=1.5, label='墙面线段' if ax5.get_legend_handles_labels()[1] == [] else "")
-    handles = [plt.Rectangle((0,0),1,1, facecolor=color) for color in cmap_colors[:-1]]
-    labels = [f'房间 {rid}' for rid in sorted(room_polygons.keys())]
-    handles.append(plt.Rectangle((0,0),1,1, facecolor=cmap_colors[-1]))
-    labels.append('墙体/外部区域')
-    ax5.legend(handles, labels, loc='best', fontsize=6)
-    ax5.set_aspect('equal')
-    ax5.set_title('5. 按房间着色的三角剖分结果')
+    subplot_data[4](ax5)
     
-    # 6. 点云密度图与可视化标注
     ax6 = fig.add_subplot(336)
-    ax6.imshow(density_image)
-    for room_id, anns in annotations_by_room.items():
-        room_color_shift = random.uniform(0.3, 1.0)
-        for ann in anns:
-            cat_id = ann['category_id']
-            base_color = color_map[cat_id] * room_color_shift
-            
-            is_line_annotation = (
-                ann.get('area', 0) == 0.0 or 
-                (len(ann.get('segmentation', [[]])[0]) < 6) or
-                ann.get('bbox', [0,0,0,0])[3] == 0
-            )
-            
-            if is_line_annotation:
-                seg = ann['segmentation'][0]
-                if len(seg) >= 4:
-                    x1, y1, x2, y2 = seg[:4]
-                    ax6.plot([x1, x2], [y1, y2], 
-                            color=base_color, 
-                            linewidth=2,
-                            marker='o', 
-                            markersize=5,
-                            markerfacecolor='white',
-                            markeredgecolor=base_color)
-            else:
-                for polygon_coords in ann['segmentation']:
-                    if len(polygon_coords) < 6:
-                        continue
-                    poly = np.array(polygon_coords).reshape(-1, 2)
-                    if len(poly) < 3 or calculate_area(poly) < 1.0:
-                        continue
-                    patch = Polygon(poly, closed=True, 
-                                   facecolor=base_color, 
-                                   alpha=0.4, 
-                                   edgecolor='white', 
-                                   linewidth=1)
-                    ax6.add_patch(patch)
-                bbox = ann['bbox']
-                if len(bbox) == 4 and bbox[2] > 0 and bbox[3] > 0:
-                    x, y, w, h = bbox
-                    rect = plt.Rectangle((x, y), w, h, 
-                                       linewidth=2,
-                                       edgecolor=base_color, 
-                                       facecolor='none',
-                                       linestyle='--')
-                    ax6.add_patch(rect)
-    ax6.set_title('6. 点云密度图与可视化标注')
-    ax6.axis('off')
+    subplot_data[5](ax6)
     
-    # 7. 点云密度图与可视化标注+三角剖分结果
     ax7 = fig.add_subplot(337)
-    ax7.imshow(density_image)
-    # 绘制三角剖分结果（半透明）
-    ax7.tripcolor(triang, adjusted_ids, cmap=cmap, alpha=0.3)
-    ax7.triplot(triang, color='k', linewidth=0.3, alpha=0.5)
-    # 绘制标注
-    for room_id, anns in annotations_by_room.items():
-        room_color_shift = random.uniform(0.3, 1.0)
-        for ann in anns:
-            cat_id = ann['category_id']
-            base_color = color_map[cat_id] * room_color_shift
-            
-            is_line_annotation = (
-                ann.get('area', 0) == 0.0 or 
-                (len(ann.get('segmentation', [[]])[0]) < 6) or
-                ann.get('bbox', [0,0,0,0])[3] == 0
-            )
-            
-            if is_line_annotation:
-                seg = ann['segmentation'][0]
-                if len(seg) >= 4:
-                    x1, y1, x2, y2 = seg[:4]
-                    ax7.plot([x1, x2], [y1, y2], 
-                            color=base_color, 
-                            linewidth=2,
-                            marker='o', 
-                            markersize=5,
-                            markerfacecolor='white',
-                            markeredgecolor=base_color)
-            else:
-                for polygon_coords in ann['segmentation']:
-                    if len(polygon_coords) < 6:
-                        continue
-                    poly = np.array(polygon_coords).reshape(-1, 2)
-                    if len(poly) < 3 or calculate_area(poly) < 1.0:
-                        continue
-                    patch = Polygon(poly, closed=True, 
-                                   facecolor=base_color, 
-                                   alpha=0.4, 
-                                   edgecolor='white', 
-                                   linewidth=1)
-                    ax7.add_patch(patch)
-                bbox = ann['bbox']
-                if len(bbox) == 4 and bbox[2] > 0 and bbox[3] > 0:
-                    x, y, w, h = bbox
-                    rect = plt.Rectangle((x, y), w, h, 
-                                       linewidth=2,
-                                       edgecolor=base_color, 
-                                       facecolor='none',
-                                       linestyle='--')
-                    ax7.add_patch(rect)
-    ax7.set_title('7. 点云密度图与标注+三角剖分结果')
-    ax7.axis('off')
+    subplot_data[6](ax7)
+    
+    # 绑定点击事件
+    fig.canvas.mpl_connect('button_press_event', on_click)
     
     plt.tight_layout()
     plt.savefig('combined_visualization.png', dpi=300, bbox_inches='tight')
-    plt.show()
     print("所有可视化结果已保存为 combined_visualization.png")
+    print("提示：点击任何子图可查看放大版本")
+    plt.show()
 
 # 使用示例
 if __name__ == "__main__":
-    scene_name = 'scene_000000'  # 替换为你的场景名称
+    scene_name = 'scene_000005'  # 替换为你的场景名称
     JSON_PATH = f"coco_with_scaled/sample0_256/anno/{scene_name}.json"
     DENSITY_MAP_PATH = f"coco_with_scaled/sample0_256/density_map/{scene_name}.png"
     

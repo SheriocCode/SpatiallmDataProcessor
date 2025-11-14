@@ -168,7 +168,8 @@ def extend_segment_to_bbox(segment, bbox):
 # annotations = [ann for ann in annotations if ann['category_id'] not in [16, 17]]
 
 # 加载 coco_with_scaled 数据
-with open('coco_with_scaled/sample0_256/anno/scene_000000.json', 'r', encoding='utf-8') as f:
+with open('coco_with_scaled/sample0_256/anno/scene_000040.json', 'r', encoding='utf-8') as f:
+# with open('coco_with_scaled/sample0_256/anno/scene_000000.json', 'r', encoding='utf-8') as f:
     coco_data = json.load(f)
 annotations = coco_data.get('annotations', [])
 annotations = [ann for ann in annotations if ann['category_id'] not in [0, 1]]
@@ -222,6 +223,21 @@ for p in all_points:
 # 构建线段索引
 segments = []
 point_indices = { (round(p[0], 6), round(p[1], 6)): i for i, p in enumerate(unique_points) }
+
+# 去重线段（在构建segments前）
+unique_segments = []
+seen_seg = set()
+for seg in wall_segments:
+    # 标准化线段表示（按点索引排序，避免(a,b)和(b,a)被视为不同）
+    p1, p2 = seg
+    key = tuple(sorted([
+        (round(p1[0], 6), round(p1[1], 6)),
+        (round(p2[0], 6), round(p2[1], 6))
+    ]))
+    if key not in seen_seg:
+        seen_seg.add(key)
+        unique_segments.append(seg)
+wall_segments = unique_segments  # 替换为去重后的线段
 
 for seg in wall_segments:
     p1, p2 = seg

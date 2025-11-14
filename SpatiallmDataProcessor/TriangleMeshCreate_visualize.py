@@ -181,7 +181,7 @@ def assign_triangles_to_rooms(triangles, vertices, room_polygons):
     return triangle_room_ids
 
 # 加载数据
-with open('coco_with_scaled/sample0_256/anno/scene_000000.json', 'r', encoding='utf-8') as f:
+with open('coco_with_scaled/sample0_256/anno/scene_004872.json', 'r', encoding='utf-8') as f:
     coco_data = json.load(f)
 annotations = coco_data.get('annotations', [])
 # 过滤掉不需要的类别（保留有room_id的）
@@ -240,6 +240,21 @@ for p in all_points:
 # 构建线段索引
 segments = []
 point_indices = { (round(p[0], 6), round(p[1], 6)): i for i, p in enumerate(unique_points) }
+
+# 去重线段（在构建segments前）
+unique_segments = []
+seen_seg = set()
+for seg in wall_segments:
+    # 标准化线段表示（按点索引排序，避免(a,b)和(b,a)被视为不同）
+    p1, p2 = seg
+    key = tuple(sorted([
+        (round(p1[0], 6), round(p1[1], 6)),
+        (round(p2[0], 6), round(p2[1], 6))
+    ]))
+    if key not in seen_seg:
+        seen_seg.add(key)
+        unique_segments.append(seg)
+wall_segments = unique_segments  # 替换为去重后的线段
 
 for seg in wall_segments:
     p1, p2 = seg
@@ -364,5 +379,5 @@ else:
     plt.show()
 
     # 保存为PLY文件（可包含房间ID信息）
-    save_triangulation_to_ply(vertices, triangles, filename='room_colored_mesh.ply', binary=True)
+    # save_triangulation_to_ply(vertices, triangles, filename='room_colored_mesh.ply', binary=True)
     print("[SUCCESS] 三角剖分结果已保存为 PLY 文件！")
