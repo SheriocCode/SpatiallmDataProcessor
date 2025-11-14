@@ -3,3 +3,4 @@ data/
 Test/
 *.pyc
 coco_with_scaled/
+DelaunayTriangleMesh/
