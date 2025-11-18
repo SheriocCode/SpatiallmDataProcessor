@@ -444,7 +444,7 @@ if __name__ == "__main__":
     
     # 2. 可视化
     python script.py --mode visualize <pickle_path>
-    $ python script.py --mode visualize poly_repair_output/pickle_save/scene_001_repair.fig.pkl
+    $ python script.py --mode visualize poly_repair_output/pickle_save/scene_000069_01_0_repair.fig.pkl
     """
     )
 
