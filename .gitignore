@@ -4,3 +4,6 @@ Test/
 *.pyc
 coco_with_scaled/
 DelaunayTriangleMesh/
+rule*/
+S3dWallFeature/
+Dist/
