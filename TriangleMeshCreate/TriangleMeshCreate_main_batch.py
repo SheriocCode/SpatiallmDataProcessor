@@ -10,7 +10,6 @@ import json
 import os
 import logging
 from utils.log_util import init_logger
-import timeout_decorator
 
 init_logger('DelaunayTriangleMesh/.log')
 
@@ -190,10 +189,6 @@ def visualize_plt(vertices, triangles, wall_segments, box):
     plt.title('延伸墙面线段后的约束Delaunay三角剖分')
     plt.show()
 
-# @timeout_decorator.timeout(5, timeout_exception=TimeoutError)
-# def safe_triangulate(A):
-#     """带超时保护的三角剖分函数"""
-#     return triangle.triangulate(A, 'p')  # 使用前面的参数
 
 def triangulate_task(A, result_queue):
     try:

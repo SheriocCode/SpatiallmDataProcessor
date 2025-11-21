@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.tri as mtri
-import triangle  # pip install triangle
+import triangle
 import json
 import os
 
@@ -103,8 +103,8 @@ def extend_segment_to_bbox(segment, bbox):
     # if abs(dx) <= 2: 
     if dx == 0:
         x = x1
-        y_min = min(y1, y2)
-        y_max = max(y1, y2)
+        min_y = min(y1, y2)
+        max_y = max(y1, y2)
         return [(x, min_y), (x, max_y)]
     
     # 如果是水平线
@@ -113,7 +113,7 @@ def extend_segment_to_bbox(segment, bbox):
         y = y1
         x_min = min(x1, x2)
         x_max = max(x1, x2)
-        return [(min_x, y), (max_x, y)]
+        return [(x_min, y), (x_max, y)]
 
     # 计算与边界框的交点
     intersections = []
@@ -160,18 +160,11 @@ def extend_segment_to_bbox(segment, bbox):
     return segment  # 无法延伸的情况
 
 
-# 从文件加载 S3D.json
-# with open('../TriangleMeshCreate/s3d/00002.json', 'r', encoding='utf-8') as f:
-#     coco_data = json.load(f)
-# annotations = coco_data.get('annotations', [])
-# # 排除 id 为 16 和 17 的 annotation（门/窗）
-# annotations = [ann for ann in annotations if ann['category_id'] not in [16, 17]]
-
 # 加载 coco_with_scaled 数据
-with open('coco_with_scaled/sample0_256/anno/scene_000001.json', 'r', encoding='utf-8') as f:
-# with open('coco_with_scaled/sample0_256/anno/scene_000000.json', 'r', encoding='utf-8') as f:
+with open('../SpatiallmDataProcessor/output/coco_with_scaled/sample0_256/anno/scene_000351.json', 'r', encoding='utf-8') as f:
     coco_data = json.load(f)
 annotations = coco_data.get('annotations', [])
+# 排除 id 为 0 和 1 的 annotation（窗/门）
 annotations = [ann for ann in annotations if ann['category_id'] not in [0, 1]]
 
 
