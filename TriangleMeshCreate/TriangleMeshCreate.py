@@ -3,6 +3,8 @@ import matplotlib.pyplot as plt
 import matplotlib.tri as mtri
 import json
 import os
+import logging
+from multiprocessing import Pool, cpu_count
 
 def save_triangulation_to_ply(vertices, triangles, filename='output_mesh.ply', binary=True):
     """将三角剖分结果保存为 PLY 文件格式"""
@@ -56,7 +58,7 @@ def save_triangulation_to_ply(vertices, triangles, filename='output_mesh.ply', b
             for face in triangles:
                 f.write(f"3 {face[0]} {face[1]} {face[2]}\n")
 
-    print(f"[INFO] 三角网格已保存为 PLY 文件: {os.path.abspath(filename)}")
+    # print(f"[INFO] 三角网格已保存为 PLY 文件: {os.path.abspath(filename)}")
 
 # 将线段延伸至边界框
 def extend_segment_to_bbox(segment, bbox):
@@ -95,10 +97,18 @@ def extend_segment_to_bbox(segment, bbox):
     if box_min_x <= x_top <= box_max_x:
         intersections.append((x_top, box_max_y))
 
-    return intersections
+    # 去重交点(当一条边恰好穿过边界框角落，会出现重复的交点)
+    unique_intersections = []
+    seen = set()
+    for p in intersections:
+        key = (p[0], p[1])
+        if key not in seen:
+            seen.add(key)
+            unique_intersections.append(p)
+
+    return unique_intersections
 
 def get_vertices_and_segments(annotations, box):
-    # 提取所有墙面线段并延伸至边界框
     wall_segments = []
     all_points = []
 
@@ -175,10 +185,10 @@ def get_vertices_and_segments(annotations, box):
     # print("[DEBUG] 线段数量:", len(segments))
 
     # 检查索引是否越界
-    # segments_np = np.array(segments, dtype=int)
-    # max_idx = segments_np.max()
-    # if max_idx >= len(unique_points):
-    #     raise ValueError(f"❌ 线段索引 {max_idx} 超出了顶点范围（总顶点数={len(unique_points)}）")
+    segments_np = np.array(segments, dtype=int)
+    max_idx = segments_np.max()
+    if max_idx >= len(unique_points):
+        raise ValueError(f"❌ 线段索引 {max_idx} 超出了顶点范围（总顶点数={len(unique_points)}）")
     
     return unique_points, segments
 
@@ -237,7 +247,7 @@ def cgal_constrained_triangulation(vertices, segments):
     if len(triangles_np) > 0:
         return vertices_np, triangles_np
     else:
-        print("❌ CGAL三角剖分失败，未生成任何三角形")
+        # logging.error("❌ CGAL三角剖分失败，未生成任何三角形")
         return None, None
 
 def triangle_constrained_triangulation(vertices, segments):
@@ -282,33 +292,133 @@ def visualize_plt(vertices, triangles):
     plt.title('延伸墙面线段后的约束Delaunay三角剖分')
     plt.show()
 
-# 定义外包围盒
-box = [
-    (0, 0),
-    (256, 0),
-    (256, 256),
-    (0, 256)
-]
-# 加载 coco_with_scaled 数据
-with open('../SpatiallmDataProcessor/output/coco_with_scaled/sample0_256/anno/scene_004512.json', 'r', encoding='utf-8') as f:
-# with open('../SpatiallmDataProcessor/output/coco_with_scaled/sample0_256/anno/scene_000000.json', 'r', encoding='utf-8') as f:
-    coco_data = json.load(f)
-annotations = coco_data.get('annotations', [])
-# 排除 id 为 0 和 1 的 annotation（窗/门）
-annotations = [ann for ann in annotations if ann['category_id'] not in [0, 1]]
+def process_single_scene(scene_file, anno_dir, sample_id, img_size):
+    """处理单个场景文件（多进程任务函数）"""
+    scene_path = os.path.join(anno_dir, scene_file)
+    try:
+        with open(scene_path, 'r', encoding='utf-8') as f:
+            coco_data = json.load(f)
+        annotations = coco_data.get('annotations', [])
+        # 排除门窗
+        annotations = [ann for ann in annotations if ann['category_id'] not in [0, 1]]
 
-unique_points, wall_segments = get_vertices_and_segments(annotations, box)
+        box = [
+            (0, 0),
+            (img_size, 0),
+            (img_size, img_size),
+            (0, img_size)
+        ]
 
-# CGAL三角剖分
-print("[DEBUG] 开始三角剖分（CGAL）...")
-# vertices_np = np.array(unique_points, dtype=float)
-vertices, triangles = cgal_constrained_triangulation(unique_points, wall_segments)
-print("[DEBUG] 三角剖分（CGAL）完成!")
-visualize_plt(vertices, triangles)
+        unique_points, wall_segments = get_vertices_and_segments(annotations, box)
 
-# Triangle 三角剖分
-print("[DEBUG] 开始三角剖分（Triangle）...")
-vertices, triangles = triangle_constrained_triangulation(unique_points, wall_segments)
-print("[DEBUG] 三角剖分（Triangle）完成!")
-visualize_plt(vertices, triangles)
+        # logging.info(f"开始三角剖分（CGAL），scene_file: {scene_file}, sample_id: {sample_id}, img_size: {img_size}")
+        vertices, triangles = cgal_constrained_triangulation(unique_points, wall_segments)
+        if vertices is None or triangles is None:
+            logging.error(f"❌ CGAL三角剖分失败，未生成任何三角形, scene_file: {scene_file}")
+            return
 
+        ply_filename = os.path.join(OUTPUT_PATH, f'sample{sample_id}_{img_size}', os.path.splitext(scene_file)[0]+'.ply')
+        os.makedirs(os.path.dirname(ply_filename), exist_ok=True)
+        save_triangulation_to_ply(vertices, triangles, filename=ply_filename, binary=True)
+        # logging.info(f"✅ 保存三角网格: {ply_filename}")
+
+    except Exception as e:
+        logging.error(f"❌ 处理场景 {scene_file} 时出错: {e}", exc_info=True)
+
+
+def batch_generate_triangulation(sample_id, img_size, num_workers):
+    anno_dir = os.path.join(COCO_WITH_SCALED_PATH, f'sample{sample_id}_{img_size}', 'anno')
+    scene_files = [f for f in os.listdir(anno_dir) if f.endswith('.json')]
+    if not scene_files:
+        logging.error(f"⚠️ 未找到任何场景文件, anno_dir: {anno_dir}")
+        return
+    logging.info(f"找到{len(scene_files)}个场景文件, anno_dir: {anno_dir}")
+
+    with Pool(processes=num_workers) as pool:
+        tasks = [
+                    (scene_file, anno_dir, sample_id, img_size)
+                    for scene_file in scene_files
+                ]
+        pool.starmap(process_single_scene, tasks)
+
+    logging.info(f"✅ 所有场景处理完成: sample_id={sample_id}, img_size={img_size}")
+
+
+def run_for_params(sample_id, img_size):
+
+    NUM_WORKERS = max(1, int(cpu_count() * 1.5))
+    # NUM_WORKERS = 1
+    logging.info(f"Starting for SAMPLE_ID={sample_id}, IMG_SIZE={img_size}")
+    logging.info(f"NUM_WORKERS={NUM_WORKERS}")
+    batch_generate_triangulation(
+        sample_id,
+        img_size,
+        num_workers = NUM_WORKERS)
+    logging.info(f"Finished for SAMPLE_ID={sample_id}, IMG_SIZE={img_size}")
+    
+def test():
+    # 定义外包围盒
+    box = [
+        (0, 0),
+        (256, 0),
+        (256, 256),
+        (0, 256)
+    ]
+    # 加载 coco_with_scaled 数据
+    # with open('../SpatiallmDataProcessor/output/coco_with_scaled/sample0_256/anno/scene_005049.json', 'r', encoding='utf-8') as f:
+    with open('../SpatiallmDataProcessor/output/coco_with_scaled/sample0_256/anno/scene_002094.json', 'r', encoding='utf-8') as f:
+    # with open('../SpatiallmDataProcessor/output/coco_with_scaled/sample0_256/anno/scene_000000.json', 'r', encoding='utf-8') as f:
+        coco_data = json.load(f)
+    annotations = coco_data.get('annotations', [])
+    # 排除 id 为 0 和 1 的 annotation（窗/门）
+    annotations = [ann for ann in annotations if ann['category_id'] not in [0, 1]]
+
+    unique_points, wall_segments = get_vertices_and_segments(annotations, box)
+
+    # CGAL三角剖分
+    print("[DEBUG] 开始三角剖分（CGAL）...")
+    # vertices_np = np.array(unique_points, dtype=float)
+    vertices, triangles = cgal_constrained_triangulation(unique_points, wall_segments)
+    print("[DEBUG] 三角剖分（CGAL）完成!")
+    visualize_plt(vertices, triangles)
+    save_triangulation_to_ply(vertices, triangles, filename='cgal_triangulation.ply', binary=True)
+
+    # Triangle三角剖分
+    print("[DEBUG] 开始三角剖分（Triangle）...")
+    vertices, triangles = triangle_constrained_triangulation(unique_points, wall_segments)
+    print("[DEBUG] 三角剖分（Triangle）完成!")
+    visualize_plt(vertices, triangles)
+    save_triangulation_to_ply(vertices, triangles, filename='triangle_triangulation.ply', binary=True)
+
+
+if __name__ == '__main__':
+    # # 测试CGAL三角剖分和Triangle三角剖分
+    # test()
+
+    COCO_WITH_SCALED_PATH = '../SpatiallmDataProcessor/output/coco_with_scaled'
+    OUTPUT_PATH = './DelaunayTriangleMesh'
+    # 设置日志
+    logging.basicConfig(
+        filename=os.path.join(OUTPUT_PATH, '.log'),
+        level=logging.INFO,
+        format='%(asctime)s | %(levelname)s | %(message)s',
+        filemode='w' 
+    )
+
+    PARAM_COMBINATIONS = [
+        {"sample_id": 0, "img_size": 256},
+        {"sample_id": 0, "img_size": 1024},
+        {"sample_id": 1, "img_size": 256},
+        {"sample_id": 1, "img_size": 1024},
+        {"sample_id": 2, "img_size": 256},
+        {"sample_id": 2, "img_size": 1024},
+        {"sample_id": 3, "img_size": 256},
+        {"sample_id": 3, "img_size": 1024},
+    ]
+    for params in PARAM_COMBINATIONS:
+        sample_id = params["sample_id"]
+        img_size = params["img_size"]
+        print(f"\n{'='*40}")
+        print(f"Running for SAMPLE_ID={sample_id}, IMG_SIZE={img_size}")
+        print(f"{'='*40}")
+        run_for_params(sample_id, img_size)

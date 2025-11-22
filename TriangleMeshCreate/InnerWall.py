@@ -897,24 +897,29 @@ def process_and_visualize_scene(json_path, output_image_name, ply_path=None):
 
 
 if __name__ == '__main__':
+    json_path = '../SpatiallmDataProcessor/output/coco_with_scaled/sample0_256/anno/scene_000000.json'
+    # ply_path = 'triangle_triangulation.ply'
+    ply_path = 'cgal_triangulation.ply'
+    output_image_name = os.path.join('./', os.path.basename(json_path).replace('.json', '.png'))
+    process_and_visualize_scene(json_path, output_image_name, ply_path)
     # 假设所有JSON文件和PLY文件都在这些目录下
-    resume_from_idx = 0
+    # resume_from_idx = 0
 
-    anno_dir = 'coco_with_scaled/sample0_256/anno/'
-    ply_dir = 'DelaunayTriangleMesh/sample0_256'  # PLY文件保存目录
-    os.makedirs(ply_dir, exist_ok=True)  # 确保目录存在
+    # anno_dir = '../SpatiallmDataProcessor/output/coco_with_scaled/sample0_256/anno/'
+    # ply_dir = 'DelaunayTriangleMesh/sample0_256'  # PLY文件保存目录
+    # os.makedirs(ply_dir, exist_ok=True)  # 确保目录存在
 
-    json_files = sorted(glob.glob(os.path.join(anno_dir, 'scene_*.json')))  # 按名字排序
-    for idx, json_path in enumerate(json_files[resume_from_idx:], start=resume_from_idx):
-        json_filename = os.path.basename(json_path)         # 如 'scene_000000.json'
-        ply_filename = json_filename.replace('.json', '.ply')  # 如 'scene_000000.ply'
-        ply_path = os.path.join(ply_dir, ply_filename)       # 如 'DelaunayTriangleMesh/sample0_256/scene_000000.ply'
-        output_image_name = os.path.join('rule_output/rule_test', json_filename.replace('.json', '.png'))
-        print(f"正在处理第 {idx+1} 个场景: {json_path}")
-        logging.info(f"正在处理第 {idx+1} 个场景: {json_path}")
-        try:
-            process_and_visualize_scene(json_path, output_image_name, ply_path)
-        except Exception as e:
-            print(f"[ERROR] 处理 {json_path} 时出错: {e}")
-            logging.error(f"[ERROR] 处理 {json_path} 时出错: {e}")
+    # json_files = sorted(glob.glob(os.path.join(anno_dir, 'scene_*.json')))  # 按名字排序
+    # for idx, json_path in enumerate(json_files[resume_from_idx:], start=resume_from_idx):
+    #     json_filename = os.path.basename(json_path)         # 如 'scene_000000.json'
+    #     ply_filename = json_filename.replace('.json', '.ply')  # 如 'scene_000000.ply'
+    #     ply_path = os.path.join(ply_dir, ply_filename)       # 如 'DelaunayTriangleMesh/sample0_256/scene_000000.ply'
+    #     output_image_name = os.path.join('rule_output/rule_test', json_filename.replace('.json', '.png'))
+    #     print(f"正在处理第 {idx+1} 个场景: {json_path}")
+    #     logging.info(f"正在处理第 {idx+1} 个场景: {json_path}")
+    #     try:
+    #         process_and_visualize_scene(json_path, output_image_name, ply_path)
+    #     except Exception as e:
+    #         print(f"[ERROR] 处理 {json_path} 时出错: {e}")
+    #         logging.error(f"[ERROR] 处理 {json_path} 时出错: {e}")
 
