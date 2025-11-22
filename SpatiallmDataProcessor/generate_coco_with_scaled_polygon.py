@@ -14,20 +14,12 @@ import cv2
 import math
 from multiprocessing import Pool, cpu_count
 
-from ply_2d_projection_with_txt_annotations import Wall, Door, Window
 from ply_2d_projection_with_txt_annotations import parse_annotation
 
-def generate_2d_point_cloud_density_map(points, output_png_path, target_size=(256, 256)):
+def generate_2d_point_cloud_density_map(points, output_png_path, min_xy, range_xy, target_size=(256, 256)):
+    """使用统一计算的min_xy和range_xy生成密度图"""
     if points.shape[1] == 3:
         points = points[:, :2]
-
-    min_xy = np.min(points, axis=0)
-    max_xy = np.max(points, axis=0)
-    range_xy = max_xy - min_xy
-
-    max_xy = max_xy + 0.1 * range_xy
-    min_xy = min_xy - 0.1 * range_xy
-    range_xy = max_xy - min_xy
 
     eps = 1e-6
     range_xy = np.where(range_xy < eps, eps, range_xy)
@@ -52,19 +44,21 @@ def generate_2d_point_cloud_density_map(points, output_png_path, target_size=(25
     return density_uint8
 
 
-def calculate_scaling_params(points, target_size=(256, 256), padding=0.1):
+def calculate_unified_scaling_params(point_coords, annotation_coords, target_size=(256, 256), padding=0.1):
     """
-    计算与点云密度图完全相同的缩放参数
+    合并点云和标注坐标计算统一的缩放参数
+    point_coords: 点云坐标 (Nx2 numpy array)
+    annotation_coords: 标注坐标 (Mx2 numpy array)
     返回: min_xy, range_xy, target_size
     """
-    if points.shape[1] == 3:
-        points = points[:, :2]
+    # 合并所有坐标
+    all_coords = np.vstack([point_coords, annotation_coords])
     
-    min_xy = np.min(points, axis=0)
-    max_xy = np.max(points, axis=0)
+    min_xy = np.min(all_coords, axis=0)
+    max_xy = np.max(all_coords, axis=0)
     range_xy = max_xy - min_xy
     
-    # 扩展边界 (与原始代码完全一致)
+    # 扩展边界
     max_xy = max_xy + padding * range_xy
     min_xy = min_xy - padding * range_xy
     range_xy = max_xy - min_xy
@@ -99,8 +93,9 @@ def process_single_scene(scene_data, split_csv_path, ply_data_root, layout_data_
     
     try:
         all_points = []
+        all_annotation_coords = []  # 收集所有标注坐标
         
-        # 获取scene点云（你的原有代码）
+        # 1. 收集点云数据
         for chunk_id in chunk_ids:
             chunk_folder = os.path.join(ply_data_root, f"chunk_{str(chunk_id).zfill(3)}")
             if not os.path.exists(chunk_folder):
@@ -134,25 +129,8 @@ def process_single_scene(scene_data, split_csv_path, ply_data_root, layout_data_
             return result
         
         all_points = np.vstack(all_points)
-        output_png = os.path.join(ply_output_dir, f"{scene_id}.png")
-        generate_2d_point_cloud_density_map(all_points, output_png, target_size)
-
-        # 获取点云缩放参数（你的原有代码）
-        min_xy, range_xy, target_size = calculate_scaling_params(all_points, target_size)
-        H, W = target_size  # H=256, W=256
         
-        # ✅ 定义内部缩放函数：世界坐标 → 像素坐标
-        def scale_world_to_pixel(world_coords):
-            """
-            将世界坐标转换为与密度图对齐的像素坐标
-            world_coords: Nx2 numpy array 或列表 [[x,y], ...]
-            """
-            world_coords = np.asarray(world_coords, dtype=np.float32)
-            normalized = (world_coords - min_xy) / range_xy
-            pixel_coords = (normalized * (np.array(target_size) - 1)).astype(np.int32)
-            return pixel_coords  # 返回整型像素坐标
-
-        # 获取txt文件（你的原有代码）
+        # 2. 收集标注数据坐标
         all_txt_files = []
         for chunk_id in chunk_ids:
             chunk_folder = os.path.join(layout_data_root, f"chunk_{str(chunk_id).zfill(3)}")
@@ -172,13 +150,13 @@ def process_single_scene(scene_data, split_csv_path, ply_data_root, layout_data_
         logging.info(f"[DEBUG] scene_id={scene_id}, layout_data_root={layout_data_root}")
         logging.info(f"[DEBUG] 所有找到的 txt_files: {all_txt_files}")
         
-        annos = []
-
-        # 遍历 txt_path（你的原有代码）
+        # 临时存储标注坐标用于计算统一范围
+        temp_annotation_coords = []
+        temp_entities_list = []  # 存储所有实体用于后续处理
+        
         for txt_path in all_txt_files:
             filename = os.path.basename(txt_path)
             if filename in TXT_REPAIRED:
-                # 需要使用修复后的文件
                 repaired_txt_path = os.path.join("poly_repair_output/txt_repaired/", filename)
                 if os.path.exists(repaired_txt_path):
                     txt_path = repaired_txt_path
@@ -192,49 +170,81 @@ def process_single_scene(scene_data, split_csv_path, ply_data_root, layout_data_
             if row.empty:
                 result['warn_messages'].append(f"未找到对应的行: {txt_path}")
                 continue
+            
             room_id = int(row['room_id'].iloc[0])
+            entities = parse_annotation(txt_path, room_id)
+            temp_entities_list.append((entities, room_id, row))  # 保存实体和相关信息
+            
+            # 收集墙的坐标
+            if entities["walls"]:
+                for wall in entities["walls"]:
+                    temp_annotation_coords.append([wall.ax, wall.ay])
+                    temp_annotation_coords.append([wall.bx, wall.by])
+            
+            # 收集门的坐标
+            if entities["doors"]:
+                for door in entities["doors"]:
+                    temp_annotation_coords.append([door.position_x, door.position_y])
+            
+            # 收集窗的坐标
+            if entities["windows"]:
+                for window in entities["windows"]:
+                    temp_annotation_coords.append([window.position_x, window.position_y])
+        
+        # 3. 计算统一的缩放参数
+        if not temp_annotation_coords:
+            result['warn_messages'].append("未找到任何标注坐标，将仅使用点云范围")
+            annotation_coords = np.array([[0, 0]])  # 用一个临时点避免空数组
+        else:
+            annotation_coords = np.array(temp_annotation_coords)
+        
+        # 计算统一缩放参数
+        min_xy, range_xy, target_size = calculate_unified_scaling_params(
+            all_points, 
+            annotation_coords, 
+            target_size
+        )
+        H, W = target_size
+        
+        # 4. 生成点云密度图（使用统一缩放参数）
+        output_png = os.path.join(ply_output_dir, f"{scene_id}.png")
+        generate_2d_point_cloud_density_map(all_points, output_png, min_xy, range_xy, target_size)
+        
+        # 定义缩放函数
+        def scale_world_to_pixel(world_coords):
+            world_coords = np.asarray(world_coords, dtype=np.float32)
+            normalized = (world_coords - min_xy) / range_xy
+            pixel_coords = (normalized * (np.array(target_size) - 1)).astype(np.int32)
+            return pixel_coords
+        
+        # 5. 处理标注数据（使用统一缩放参数）
+        annos = []
+        for entities, room_id, row in temp_entities_list:
             room_type = row['room_type'].iloc[0]
             img_id = int(scene_id.split('_')[1])
-            logging.info(f'[debug] room_id:{room_id} room_type:{room_type}')
-
-            entities = parse_annotation(txt_path, room_id)
             category_id = CATEGORIES_NAME_TO_ID[room_type]
 
-            # ====== ✅ 处理 WALL（添加缩放） ======
+            # 处理墙体
             if entities["walls"]:
-                # 收集所有wall的顶点（起点和终点）
                 wall_vertices = []
                 for wall in entities["walls"]:
-                    wall_vertices.append([wall.ax, wall.ay])  # 起点
-                    wall_vertices.append([wall.bx, wall.by])  # 终点
+                    wall_vertices.append([wall.ax, wall.ay])
+                    wall_vertices.append([wall.bx, wall.by])
                 
-                # 缩放到像素坐标
                 scaled_wall_vertices = scale_world_to_pixel(wall_vertices)
-                
-                # 构造多边形（使用每个wall的起点，假设walls已排序）
-                wall_polygon_points = scaled_wall_vertices[::2]  # 每隔一个取起点
+                wall_polygon_points = scaled_wall_vertices[::2]
                 wall_polygon = Polygon(wall_polygon_points)
                 
-                # # ✅ 构造缩放后的segmentation（这里是线段两个点依次添加，会重复点）
-                # scaled_segmentation = []
-                # for i in range(0, len(scaled_wall_vertices), 2):
-                #     x1, y1 = scaled_wall_vertices[i]
-                #     x2, y2 = scaled_wall_vertices[i+1]
-                #     scaled_segmentation.extend([float(x1), float(y1), float(x2), float(y2)])
-
-                # ✅ 修改：构造多边形的顺序顶点列表（首尾不重复）
                 scaled_segmentation = []
                 for point in wall_polygon_points:
                     x, y = point
-                    scaled_segmentation.extend([float(x), float(y)])  # 直接添加多边形顶点，按顺序排列
+                    scaled_segmentation.extend([float(x), float(y)])
                 
-                # ✅ 在像素空间计算bbox
                 x_coords = scaled_wall_vertices[:, 0]
                 y_coords = scaled_wall_vertices[:, 1]
                 x_min, x_max = x_coords.min(), x_coords.max()
                 y_min, y_max = y_coords.min(), y_coords.max()
                 
-                # 扩展bbox（可选，基于像素单位）
                 expand = 2
                 bbox = [
                     float(max(0, x_min - expand)),
@@ -246,7 +256,7 @@ def process_single_scene(scene_data, split_csv_path, ply_data_root, layout_data_
                 wall_anno = {
                     "room_id": room_id,
                     "segmentation": [scaled_segmentation],
-                    "area": float(wall_polygon.area),  # 像素空间的面积
+                    "area": float(wall_polygon.area),
                     "iscrowd": 0,
                     "image_id": img_id,
                     "bbox": bbox,
@@ -255,7 +265,7 @@ def process_single_scene(scene_data, split_csv_path, ply_data_root, layout_data_
                 }
                 annos.append(wall_anno)
             
-            # ====== ✅ 处理 DOOR 和 WINDOW（添加缩放） ======
+            # 处理门和窗
             def find_wall_by_id(walls, wall_id):
                 for wall in walls:
                     if wall.id == wall_id:
@@ -263,13 +273,11 @@ def process_single_scene(scene_data, split_csv_path, ply_data_root, layout_data_
                 return None
             
             def process_line_entity(entity, entities, category_name):
-                """处理门或窗这类线段实体"""
                 wall = find_wall_by_id(entities["walls"], entity.wall_id)
                 if not wall:
                     logging.info(f"警告：{category_name} (id={entity.id}) 找不到对应的 wall (wall_id={entity.wall_id})")
                     return None
                 
-                # 世界坐标系下的端点
                 cx, cy = entity.position_x, entity.position_y
                 w = entity.width
                 
@@ -283,13 +291,11 @@ def process_single_scene(scene_data, split_csv_path, ply_data_root, layout_data_
                 x2_world = cx + dir_norm_x * half_w
                 y2_world = cy + dir_norm_y * half_w
                 
-                # ✅ 缩放到像素坐标
                 endpoints = np.array([[x1_world, y1_world], [x2_world, y2_world]])
                 scaled_endpoints = scale_world_to_pixel(endpoints)
                 x1, y1 = scaled_endpoints[0]
                 x2, y2 = scaled_endpoints[1]
                 
-                # ✅ 构造像素空间的segmentation和bbox
                 segmentation = [float(x1), float(y1), float(x2), float(y2)]
                 x_min, x_max = min(x1, x2), max(x1, x2)
                 y_min, y_max = min(y1, y2), max(y1, y2)
@@ -298,7 +304,7 @@ def process_single_scene(scene_data, split_csv_path, ply_data_root, layout_data_
                 return {
                     "room_id": entity.room_id,
                     "segmentation": [segmentation],
-                    "area": 0.0,  # 线段面积设为0
+                    "area": 0.0,
                     "iscrowd": 0,
                     "image_id": img_id,
                     "bbox": bbox,
@@ -306,21 +312,19 @@ def process_single_scene(scene_data, split_csv_path, ply_data_root, layout_data_
                     "id": None
                 }
             
-            # 处理Doors
             if entities["doors"]:
                 for door in entities["doors"]:
                     door_anno = process_line_entity(door, entities, "door")
                     if door_anno:
                         annos.append(door_anno)
             
-            # 处理Windows
             if entities["windows"]:
                 for window in entities["windows"]:
                     window_anno = process_line_entity(window, entities, "window")
                     if window_anno:
                         annos.append(window_anno)
 
-        # 添加annotation id（你的原有代码）
+        # 添加annotation id
         for idx, anno in enumerate(annos):
             anno["id"] = idx
         
@@ -337,7 +341,7 @@ def process_single_scene(scene_data, split_csv_path, ply_data_root, layout_data_
             "categories": []
         }
         
-        # 写入JSON（你的原有代码）
+        # 写入JSON
         try:
             logging.info(f'line323: scene_coco_data[{scene_id}]')
             logging.info(scene_coco_data)
@@ -395,7 +399,6 @@ def batch_generate_coco_scaled_parallel(
     
     # 3. 配置进程数
     if num_workers is None:
-        # I/O密集型任务可设为CPU核心数1.5倍
         num_workers = max(1, int(cpu_count() * 1.5))
     logging.info(f"启动 {num_workers} 个进程并行处理")
     
@@ -427,7 +430,6 @@ def batch_generate_coco_scaled_parallel(
     for result in results:
         scene_id = result['scene_id']
         
-        # 记录警告信息（如果有）
         for warn in result['warn_messages']:
             logging.warning(f"[{scene_id}] {warn}")
         
@@ -449,12 +451,9 @@ def run_for_params(sample_id, img_size):
     SAMPLE_ID = sample_id
     IMG_SIZE = img_size
 
-    # ply_data_root = "/mnt/data3/spatial_dataset/pcd" 
-    # layout_data_root = "/mnt/data3/spatial_dataset/layout"
     ply_data_root = "data/pcd"
     layout_data_root = "data/layout"
 
-    # output_dir = f"coco_with_scaled/sample{SAMPLE_ID}_{IMG_SIZE}"
     ply_output_dir = f"coco_with_scaled/sample{SAMPLE_ID}_{IMG_SIZE}/density_map"
     layout_output_dir = f"coco_with_scaled/sample{SAMPLE_ID}_{IMG_SIZE}/anno"
     log_path = f'coco_with_scaled/log/sample{SAMPLE_ID}_{IMG_SIZE}.log'
@@ -464,7 +463,6 @@ def run_for_params(sample_id, img_size):
     os.makedirs(os.path.dirname(layout_output_dir), exist_ok=True)
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
 
-    # NUM_WORKERS = 12
     NUM_WORKERS = 1
 
     logging.basicConfig(
@@ -487,14 +485,12 @@ def run_for_params(sample_id, img_size):
     logging.info(f"Finished for SAMPLE_ID={SAMPLE_ID}, IMG_SIZE={IMG_SIZE}")
 
 if __name__ == "__main__":
-    # ============读取categories.json============
     # 读取categories.json
     file_path = 'categories.json'
     with open(file_path, 'r', encoding='utf-8') as f:
         categories_json = json.load(f)
     categories = categories_json.get('categories', [])
     CATEGORIES = categories
-    # 构建一个从 name 到 id 的字典
     CATEGORIES_NAME_TO_ID = {}
     for category in categories:
         name = category.get('name')
@@ -502,19 +498,9 @@ if __name__ == "__main__":
         if name is not None and cat_id is not None:
             CATEGORIES_NAME_TO_ID[name] = cat_id
 
-    txt_poly_repaired_path = 'poly_repair_output/repaired_files_mapping.csv'
-    # ===读取修复文件列表===
+    txt_poly_repaired_path = 'output/poly_repair_output/repaired_files_mapping.csv'
+    
     def get_files_to_repair_list(repaired_mapping_csv_path):
-        """
-        从 repaired_files_mapping.csv 的第二列（索引为1）读取所有需要修复的文件名，
-        返回一个列表，如 ["scene_001_wall_001.txt", "scene_001_door_002.txt", ...]
-
-        参数:
-            repaired_mapping_csv_path (str): csv 文件路径
-
-        返回:
-            list[str]: 需要修复的文件名列表
-        """
         files_to_repair = []
 
         if not os.path.exists(repaired_mapping_csv_path):
@@ -523,12 +509,11 @@ if __name__ == "__main__":
 
         try:
             df = pd.read_csv(repaired_mapping_csv_path, sep=',', skipinitialspace=True)
-            # 假设第二列（索引为1）就是需要修复的文件名
-            files_col = df.iloc[:, 1]  # 第二列
+            files_col = df.iloc[:, 1]
 
             for filename in files_col:
                 if pd.notna(filename) and isinstance(filename, str):
-                    files_to_repair.append(filename.strip())  # 去除可能的空格
+                    files_to_repair.append(filename.strip())
         except Exception as e:
             print(f"[错误] 读取修复文件列表失败: {e}")
 
