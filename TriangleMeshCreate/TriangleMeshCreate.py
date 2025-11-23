@@ -105,6 +105,14 @@ def extend_segment_to_bbox(segment, bbox):
         if key not in seen:
             seen.add(key)
             unique_intersections.append(p)
+    
+    if len(unique_intersections) != 2:
+        # logging.warning(f"❌ 线段 {segment} 与边界框 {bbox} 的交点数量不为 2")
+        logging.info(f'segment: {segment}')
+        logging.info(f'bbox: {bbox}')
+        logging.info(f'intersections: {intersections}')
+        logging.info(f'unique_intersections: {unique_intersections}')
+        return unique_intersections[:2]
 
     return unique_intersections
 
@@ -193,7 +201,7 @@ def get_vertices_and_segments(annotations, box):
     return unique_points, segments
 
 def cgal_constrained_triangulation(vertices, segments):
-    """使用CGAL进行约束Delaunay三角剖分（带可视化）"""
+    """使用CGAL进行约束Delaunay三角剖分"""
     from CGAL.CGAL_Triangulation_2 import Constrained_Delaunay_triangulation_2
     from CGAL.CGAL_Kernel import Point_2
 
@@ -251,8 +259,8 @@ def cgal_constrained_triangulation(vertices, segments):
         return None, None
 
 def triangle_constrained_triangulation(vertices, segments):
-    import triangle
     """使用triangle进行三角剖分"""
+    import triangle
     # 构造输入字典
     A = dict(
         vertices=np.array(vertices, dtype=float),
@@ -268,7 +276,7 @@ def triangle_constrained_triangulation(vertices, segments):
     else:
         return B['vertices'], B['triangles']
 
-def visualize_plt(vertices, triangles):
+def visualize_plt(vertices, triangles, wall_segments, unique_points, box):
     triang = mtri.Triangulation(vertices[:, 0], vertices[:, 1], triangles)
 
     plt.figure(figsize=(10, 10))
@@ -366,7 +374,7 @@ def test():
     ]
     # 加载 coco_with_scaled 数据
     # with open('../SpatiallmDataProcessor/output/coco_with_scaled/sample0_256/anno/scene_005049.json', 'r', encoding='utf-8') as f:
-    with open('../SpatiallmDataProcessor/output/coco_with_scaled/sample0_256/anno/scene_002094.json', 'r', encoding='utf-8') as f:
+    with open('../SpatiallmDataProcessor/output/coco_with_scaled/sample1_256/anno/scene_000351.json', 'r', encoding='utf-8') as f:
     # with open('../SpatiallmDataProcessor/output/coco_with_scaled/sample0_256/anno/scene_000000.json', 'r', encoding='utf-8') as f:
         coco_data = json.load(f)
     annotations = coco_data.get('annotations', [])
@@ -380,14 +388,14 @@ def test():
     # vertices_np = np.array(unique_points, dtype=float)
     vertices, triangles = cgal_constrained_triangulation(unique_points, wall_segments)
     print("[DEBUG] 三角剖分（CGAL）完成!")
-    visualize_plt(vertices, triangles)
+    visualize_plt(vertices, triangles, wall_segments, unique_points, box)
     save_triangulation_to_ply(vertices, triangles, filename='cgal_triangulation.ply', binary=True)
 
     # Triangle三角剖分
     print("[DEBUG] 开始三角剖分（Triangle）...")
     vertices, triangles = triangle_constrained_triangulation(unique_points, wall_segments)
     print("[DEBUG] 三角剖分（Triangle）完成!")
-    visualize_plt(vertices, triangles)
+    visualize_plt(vertices, triangles, wall_segments, unique_points, box)
     save_triangulation_to_ply(vertices, triangles, filename='triangle_triangulation.ply', binary=True)
 
 
@@ -395,7 +403,7 @@ if __name__ == '__main__':
     # # 测试CGAL三角剖分和Triangle三角剖分
     # test()
 
-    COCO_WITH_SCALED_PATH = '../SpatiallmDataProcessor/output/coco_with_scaled'
+    COCO_WITH_SCALED_PATH = '../SpatiallmDataProcessor/output/coco_with_scaled_bak'
     OUTPUT_PATH = './DelaunayTriangleMesh'
     # 设置日志
     logging.basicConfig(
