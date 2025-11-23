@@ -34,9 +34,24 @@ from shapely.geometry import Polygon
 from shapely.validation import explain_validity
 
 from utils.entity import Wall, Bbox
-from utils.dir_util import make_dirs
-from utils.log_util import init_logger
 from utils.TxtParser import parse_scene_file, create_wall_polygon
+
+def init_logger(filename):
+    """初始化日志"""
+    logging.basicConfig(
+        filename=filename,
+        level=logging.DEBUG,
+        format='%(asctime)s | %(levelname)s | %(message)s',
+        filemode='w'
+    )
+    logging.getLogger('matplotlib').setLevel(logging.WARNING)
+    logging.getLogger('PIL').setLevel(logging.WARNING)
+
+def make_dirs(*dirs):
+    """批量创建目录"""
+    for dir in dirs:
+        os.makedirs(dir, exist_ok=True)
+
 
 def analyze_polygon_issues(source_filename, wall_polygon, walls):
     """分析多边形无效原因并记录日志"""

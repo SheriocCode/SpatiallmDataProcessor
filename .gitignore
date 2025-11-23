@@ -7,3 +7,7 @@ DelaunayTriangleMesh/
 rule*/
 S3dWallFeature/
 Dist/
+SpatialLM-Dataset/
+DelaunayTriangleMesh_bak/
+InnerWall/
+*.tar.gz

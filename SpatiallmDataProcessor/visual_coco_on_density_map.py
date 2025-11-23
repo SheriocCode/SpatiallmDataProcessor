@@ -197,9 +197,11 @@ def check_and_count_annotations(coco_json_path):
 
 # ==================== 使用示例 ====================
 if __name__ == "__main__":
-    scene_name = 'scene_000040'
-    COCO_JSON_PATH = f"coco_with_scaled/sample0_256/anno/{scene_name}.json" 
-    DENSITY_IMAGE_PATH = f"coco_with_scaled/sample0_256/density_map/{scene_name}.png"
+    scene_name = 'scene_000032'
+    sample_id = 0
+    image_size = 256
+    COCO_JSON_PATH = f"output/coco_with_scaled/sample{sample_id}_{image_size}/anno/{scene_name}.json" 
+    DENSITY_IMAGE_PATH = f"output/coco_with_scaled/sample{sample_id}_{image_size}/density_map/{scene_name}.png"
     
     # 先检查标注情况
     print("=== 标注信息检查 ===")

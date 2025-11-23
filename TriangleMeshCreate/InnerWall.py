@@ -3,23 +3,28 @@
 # 并且该三角形和对边三角形都不属于房间内部三角形，则认定该三角形和对边相邻三角形均为特殊三角形。
 # 其中点“在房间上”定义为：该点在房间多边形边上
 
-
-import glob
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.tri as mtri
-import triangle  # pip install triangle
 import json
 import os
 from matplotlib.colors import ListedColormap
 import logging
-from utils.log_util import init_logger
-from plyfile import PlyData, PlyElement  # 新增：用于读取PLY文件
 import shapely.geometry as sg
 from shapely.ops import unary_union
 from shapely.errors import TopologicalError
+from multiprocessing import Pool, cpu_count
 
-init_logger('rule_output/rule_test.log')
+def init_logger(filename):
+    """初始化日志"""
+    logging.basicConfig(
+        filename=filename,
+        level=logging.DEBUG,
+        format='%(asctime)s | %(levelname)s | %(message)s',
+        filemode='w'
+    )
+    logging.getLogger('matplotlib').setLevel(logging.WARNING)
+    logging.getLogger('PIL').setLevel(logging.WARNING)
 
 # ply 携带 room_id 和 inner_wall
 def save_ply_with_face_attrs(vertices, triangles, triangle_room_ids, is_special, 
@@ -343,143 +348,61 @@ def find_max_angle_opposite_edge(vertices, triangle):
     
     return opposite_edges[max_angle_idx]
 
-def save_triangulation_to_ply(vertices, triangles, filename='output_mesh.ply', binary=True):
-    """将三角剖分结果保存为 PLY 文件格式"""
-    if vertices.ndim == 2 and vertices.shape[1] == 2:
-        z = np.zeros((vertices.shape[0], 1), dtype=vertices.dtype)
-        vertices = np.hstack([vertices, z])
-    elif vertices.ndim != 2 or vertices.shape[1] != 3:
-        raise ValueError(f"vertices 必须是 N×2 或 N×3 的数组，但得到了 {vertices.shape}")
-
-    num_vertices = vertices.shape[0]
-    num_faces = triangles.shape[0]
-
-    header_lines = [
-        "ply",
-        "format binary_little_endian 1.0" if binary else "format ascii 1.0",
-        f"element vertex {num_vertices}",
-        "property float x",
-        "property float y",
-        "property float z",
-        f"element face {num_faces}",
-        "property list uchar int vertex_indices",
-        "end_header"
-    ]
-
-    header = '\n'.join(header_lines) + '\n'
-
-    with open(filename, 'wb' if binary else 'w') as f:
-        if binary:
-            f.write(header.encode('ascii'))
-        else:
-            f.write(header)
-
-        if binary:
-            vertices_flat = vertices.astype(np.float32).flatten()
-            f.write(vertices_flat.tobytes())
-        else:
-            for v in vertices:
-                f.write(f"{v[0]:.6f} {v[1]:.6f} {v[2]:.6f}\n")
-
-        if binary:
-            for face in triangles:
-                face_header = np.array([3], dtype=np.uint8)
-                face_indices = face.astype(np.int32)
-                f.write(face_header.tobytes())
-                f.write(face_indices.tobytes())
-        else:
-            for face in triangles:
-                f.write(f"3 {face[0]} {face[1]} {face[2]}\n")
-
-    logging.info(f"[INFO] 三角网格已保存为 PLY 文件: {os.path.abspath(filename)}")
-
-
-def line_intersection(seg1, seg2):
-    """计算两条线段的交点"""
-    (x1, y1), (x2, y2) = seg1
-    (x3, y3), (x4, y4) = seg2
-
-    denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
-    if denom == 0:
-        return None  # 平行线，无交点
-
-    t_num = (x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)
-    t = t_num / denom
-    u_num = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3))
-    u = u_num / denom
-
-    if 0 <= t <= 1 and 0 <= u <= 1:
-        x = x1 + t * (x2 - x1)
-        y = y1 + t * (y2 - y1)
-        return (x, y)
-    return None
-
 
 def extend_segment_to_bbox(segment, bbox):
-    """将线段延伸至边界框"""
     (x1, y1), (x2, y2) = segment
-    min_x, min_y = bbox[0]
-    max_x, max_y = bbox[2]
-
-    bbox_edges = [
-        [(min_x, min_y), (max_x, min_y)],  # 底边
-        [(max_x, min_y), (max_x, max_y)],  # 右边
-        [(max_x, max_y), (min_x, max_y)],  # 顶边
-        [(min_x, max_y), (min_x, min_y)]   # 左边
-    ]
+    box_min_x, box_min_y = bbox[0]
+    box_max_x, box_max_y = bbox[2]
 
     dx = x2 - x1
     dy = y2 - y1
 
-    if dx == 0:
+    if dx == 0: # 垂直线
         x = x1
-        return [(x, min_y), (x, max_y)]
-    
-    if dy == 0:
+        return [(x, box_min_y), (x, box_max_y)]
+    if dy == 0: # 水平线
         y = y1
-        return [(min_x, y), (max_x, y)]
+        return [(box_min_x, y), (box_max_x, y)]
 
+    # 计算与边界框的交点
     intersections = []
-    for edge in bbox_edges:
-        intersect = line_intersection(segment, edge)
-        if intersect:
-            intersections.append(intersect)
+    m = dy / dx  # 斜率
+    b = y1 - m * x1  # 截距
+    # 计算与左右边界的交点
+    y_left = m * box_min_x + b
+    y_right = m * box_max_x + b
+    # 计算与上下边界的交点
+    x_bottom = (box_min_y - b) / m if m != 0 else None
+    x_top = (box_max_y - b) / m if m != 0 else None
 
-    if len(intersections) < 2:
-        m = dy / dx
-        b = y1 - m * x1
+    # 筛选有效的边界交点
+    if box_min_y <= y_left <= box_max_y:
+        intersections.append((box_min_x, y_left))
+    if box_min_y <= y_right <= box_max_y:
+        intersections.append((box_max_x, y_right))
+    if box_min_x <= x_bottom <= box_max_x:
+        intersections.append((x_bottom, box_min_y))
+    if box_min_x <= x_top <= box_max_x:
+        intersections.append((x_top, box_max_y))
 
-        y_left = m * min_x + b
-        y_right = m * max_x + b
-
-        x_bottom = (min_y - b) / m if m != 0 else None
-        x_top = (max_y - b) / m if m != 0 else None
-
-        if min_y <= y_left <= max_y:
-            intersections.append((min_x, y_left))
-        if min_y <= y_right <= max_y:
-            intersections.append((max_x, y_right))
-        if x_bottom is not None and min_x <= x_bottom <= max_x:
-            intersections.append((x_bottom, min_y))
-        if x_top is not None and min_x <= x_top <= max_x:
-            intersections.append((x_top, max_y))
-
-    if len(intersections) >= 2:
-        # 计算每个交点到线段起点的距离
-        dists = [((x - x1)**2 + (y - y1)** 2) for x, y in intersections]
-        # 找到最远点的索引并移除
-        far1_idx = np.argmax(dists)
-        far1 = intersections.pop(far1_idx)
-        
-        # 计算剩余点到far1的距离
-        dists = [((x - far1[0])**2 + (y - far1[1])** 2) for x, y in intersections]
-        # 找到最远点的索引
-        far2_idx = np.argmax(dists)
-        far2 = intersections[far2_idx]
-        
-        return [far1, far2]
+    # 去重交点(当一条边恰好穿过边界框角落，会出现重复的交点)
+    unique_intersections = []
+    seen = set()
+    for p in intersections:
+        key = (p[0], p[1])
+        if key not in seen:
+            seen.add(key)
+            unique_intersections.append(p)
     
-    return segment
+    if len(unique_intersections) != 2:
+        # logging.warning(f"❌ 线段 {segment} 与边界框 {bbox} 的交点数量不为 2")
+        logging.info(f'segment: {segment}')
+        logging.info(f'bbox: {bbox}')
+        logging.info(f'intersections: {intersections}')
+        logging.info(f'unique_intersections: {unique_intersections}')
+        return unique_intersections[:2]
+
+    return unique_intersections
 
 def point_in_polygon(point, polygon):
     """判断点是否在多边形内部（射线法）"""
@@ -517,7 +440,7 @@ def assign_triangles_to_rooms(triangles, vertices, room_polygons):
     
     return triangle_room_ids
 
-def process_and_visualize_scene(json_path, output_image_name, ply_path=None):
+def process_and_visualize_scene(img_size, json_path, output_image_name, ply_path=None):
     # 加载数据
     with open(json_path, 'r', encoding='utf-8') as f:
         coco_data = json.load(f)
@@ -525,16 +448,13 @@ def process_and_visualize_scene(json_path, output_image_name, ply_path=None):
     # 过滤掉不需要的类别（保留有room_id的）
     annotations = [ann for ann in annotations if 'room_id' in ann and ann.get('category_id') not in [0, 1]]
 
-
     # 定义外包围盒
     box = [
         (0, 0),
-        (256, 0),
-        (256, 256),
-        (0, 256)
+        (img_size, 0),
+        (img_size, img_size),
+        (0, img_size)
     ]
-    min_x, min_y = box[0]
-    max_x, max_y = box[2]
 
     # 提取房间多边形（用于后续三角形分配）
     room_polygons = {}  # 存储房间ID到多边形的映射 {room_id: [(x1,y1), (x2,y2), ...]}
@@ -582,76 +502,50 @@ def process_and_visualize_scene(json_path, output_image_name, ply_path=None):
     unique_points = []
     seen = set()
     for p in all_points:
-        key = (round(p[0], 6), round(p[1], 6))
+        # 用四舍五入解决浮点数精度问题
+        # key = (round(p[0], 6), round(p[1], 6))
+        key = (p[0], p[1])
         if key not in seen:
             seen.add(key)
             unique_points.append(p)
 
     # 构建线段索引
     segments = []
-    point_indices = { (round(p[0], 6), round(p[1], 6)): i for i, p in enumerate(unique_points) }
+    point_indices = { (p[0], p[1]): i for i, p in enumerate(unique_points) }
 
-    # 去重线段（在构建segments前）
+    # 去重线段
     unique_segments = []
     seen_seg = set()
     for seg in wall_segments:
-        # 标准化线段表示（按点索引排序，避免(a,b)和(b,a)被视为不同）
         p1, p2 = seg
         key = tuple(sorted([
-            (round(p1[0], 6), round(p1[1], 6)),
-            (round(p2[0], 6), round(p2[1], 6))
+            (p1[0], p1[1]),
+            (p2[0], p2[1])
         ]))
         if key not in seen_seg:
             seen_seg.add(key)
             unique_segments.append(seg)
-    wall_segments = unique_segments  # 替换为去重后的线段
 
-    for seg in wall_segments:
+    segments = []
+    for seg in unique_segments:
         p1, p2 = seg
-        idx1 = point_indices[(round(p1[0], 6), round(p1[1], 6))]
-        idx2 = point_indices[(round(p2[0], 6), round(p2[1], 6))]
+        idx1 = point_indices[(p1[0], p1[1])]
+        idx2 = point_indices[(p2[0], p2[1])]
         segments.append((idx1, idx2))
 
     # 添加边界框的边
-    box_indices = [point_indices[(round(p[0], 6), round(p[1], 6))] for p in box]
+    box_indices = [point_indices[(p[0], p[1])] for p in box]
     n = len(box_indices)
     for i in range(n):
         segments.append((box_indices[i], box_indices[(i + 1) % n]))
 
-    logging.info(f"[DEBUG] 顶点数量: {len(unique_points)}")
-    logging.info(f"[DEBUG] 线段数量: {len(segments)}")
-    logging.info(f"[DEBUG] 房间数量: {len(room_polygons)}")
-    logging.info(f"[DEBUG] 房间ID列表: { list(room_polygons.keys())}")
+    logging.info(f"[DEBUG] 顶点数量: {len(unique_points)} 线段数量: {len(segments)} 房间数量: {len(room_polygons)} 房间ID列表: { list(room_polygons.keys())}")
 
     # 检查索引是否越界
     segments_np = np.array(segments, dtype=int)
     max_idx = segments_np.max()
     if max_idx >= len(unique_points):
         raise ValueError(f"❌ 线段索引 {max_idx} 超出了顶点范围（总顶点数={len(unique_points)}）")
-
-    # 如果加载失败或没有指定PLY文件，则进行三角剖分
-    # if vertices is None or triangles is None:
-    #     logging.info("[DEBUG] 未找到有效PLY文件，进行三角剖分...")
-    #     # 构造输入字典
-    #     A = dict(
-    #         vertices=np.array(unique_points, dtype=float),
-    #         segments=segments_np
-    #     )
-
-    #     logging.info("[DEBUG] 开始三角剖分...")
-    #     B = triangle.triangulate(A, 'p')
-    #     logging.info("[DEBUG] 三角剖分完成!")
-
-    #     if 'triangles' not in B:
-    #         logging.error("❌ 三角剖分失败，未生成任何三角形")
-    #         return
-    #     else:
-    #         vertices = B['vertices']
-    #         triangles = B['triangles']
-            
-    #         # 如果指定了PLY路径，保存结果
-    #         if ply_path:
-    #             save_triangulation_to_ply(vertices, triangles, filename=ply_path, binary=True)
 
     # 计算三角形房间归属
     triangle_room_ids = assign_triangles_to_rooms(triangles, vertices, room_polygons)
@@ -815,36 +709,35 @@ def process_and_visualize_scene(json_path, output_image_name, ply_path=None):
     ax4.set_title(f'4. 按房间和特殊三角形着色的结果（特殊三角形: {sum(is_special)}个）')
     
     plt.tight_layout()
-    plt.show()
     plt.savefig(output_image_name, dpi=300, bbox_inches='tight')
+    # plt.show()
+    logging.info("[SUCCESS] 可视化结果已保存！")
     plt.close(fig)
 
-    logging.info("[SUCCESS] 可视化结果已保存！")
-
-    # =======================另存ply，携带room_id和内墙标记======================
-    # 验证属性数据有效性
-    if len(triangle_room_ids) != triangles.shape[0]:
-        logging.error(f"[ERROR] triangle_room_ids 长度({len(triangle_room_ids)})与三角形数({triangles.shape[0]})不匹配，跳过PLY保存")
-        return
+    # # =======================另存ply，携带room_id和内墙标记======================
+    # # 验证属性数据有效性
+    # if len(triangle_room_ids) != triangles.shape[0]:
+    #     logging.error(f"[ERROR] triangle_room_ids 长度({len(triangle_room_ids)})与三角形数({triangles.shape[0]})不匹配，跳过PLY保存")
+    #     return
     
-    if len(is_special) != triangles.shape[0]:
-        logging.error(f"[ERROR] is_special 长度({len(is_special)})与三角形数({triangles.shape[0]})不匹配，跳过PLY保存")
-        return
+    # if len(is_special) != triangles.shape[0]:
+    #     logging.error(f"[ERROR] is_special 长度({len(is_special)})与三角形数({triangles.shape[0]})不匹配，跳过PLY保存")
+    #     return
     
-    json_filename = os.path.basename(json_path)
-    file_name = os.path.join('DelaunayTriangleMesh_With_RoomClass/sample0_256', json_filename.replace('.json', '.ply'))
-    print(f'另存ply {file_name}')
+    # json_filename = os.path.basename(json_path)
+    # file_name = os.path.join('DelaunayTriangleMesh_With_RoomClass/sample0_256', json_filename.replace('.json', '.ply'))
+    # print(f'另存ply {file_name}')
 
-    if not os.path.exists(ply_dir):
-        os.makedirs(ply_dir)
-    save_ply_with_face_attrs(
-            vertices=vertices,
-            triangles=triangles,
-            triangle_room_ids=triangle_room_ids,
-            is_special=is_special,
-            filename=file_name,
-            binary=True
-        )
+    # if not os.path.exists(ply_dir):
+    #     os.makedirs(ply_dir)
+    # save_ply_with_face_attrs(
+    #         vertices=vertices,
+    #         triangles=triangles,
+    #         triangle_room_ids=triangle_room_ids,
+    #         is_special=is_special,
+    #         filename=file_name,
+    #         binary=True
+    #     )
 
     # =======================提取封闭区域外边界======================
     # 新增：提取封闭区域外边界
@@ -868,7 +761,9 @@ def process_and_visualize_scene(json_path, output_image_name, ply_path=None):
         x, y = zip(*region)
         x += (x[0],)  # 闭合多边形
         y += (y[0],)
-        ax5.plot(x, y, '-', color=colors[i], linewidth=3, label=f'封闭区域 {i+1}')
+        # ax5.plot(x, y, '-', color=colors[i], linewidth=3, label=f'封闭区域 {i+1}')
+        # 黑色边框
+        ax5.plot(x, y, '-', color='black', linewidth=3, label=f'封闭区域 {i+1}')
     
     # 绘制边界框
     ax5.plot(box_x + (box_x[0],), box_y + (box_y[0],), 'r-', linewidth=2, label='边界框')
@@ -880,8 +775,8 @@ def process_and_visualize_scene(json_path, output_image_name, ply_path=None):
     # 保存封闭区域可视化结果
     region_image_name = output_image_name.replace('.png', '_regions.png')
     plt.tight_layout()
-    plt.show()
-    # plt.savefig(region_image_name, dpi=300, bbox_inches='tight')
+    plt.savefig(region_image_name, dpi=300, bbox_inches='tight')
+    # plt.show()
     plt.close(fig_extra)
     
     # # 可以将封闭区域结果保存为JSON
@@ -896,30 +791,87 @@ def process_and_visualize_scene(json_path, output_image_name, ply_path=None):
     logging.info("[SUCCESS] 封闭区域提取完成并保存！")
 
 
+def process_file(args):
+    json_filename, anno_dir, ply_dir, output_dir, img_size = args
+    ply_filename = json_filename.replace('.json', '.ply')
+    ply_path = os.path.join(ply_dir, ply_filename)
+    json_path = os.path.join(anno_dir, json_filename)
+    output_image_name = os.path.join(output_dir, json_filename.replace('.json', '.png'))
+
+    try:
+        process_and_visualize_scene(img_size, json_path, output_image_name, ply_path)
+    except Exception as e:
+        print(f"[ERROR] 处理 {json_path} 时出错: {e}")
+        logging.error(f"[ERROR] 处理 {json_path} 时出错: {e}")
+
 if __name__ == '__main__':
-    json_path = '../SpatiallmDataProcessor/output/coco_with_scaled/sample0_256/anno/scene_000000.json'
-    # ply_path = 'triangle_triangulation.ply'
-    ply_path = 'cgal_triangulation.ply'
-    output_image_name = os.path.join('./', os.path.basename(json_path).replace('.json', '.png'))
-    process_and_visualize_scene(json_path, output_image_name, ply_path)
-    # 假设所有JSON文件和PLY文件都在这些目录下
-    # resume_from_idx = 0
+    # 参数设置
+    PARAM_COMBINATIONS = [
+        {"sample_id": 0, "img_size": 256},
+        {"sample_id": 0, "img_size": 1024},
+        {"sample_id": 1, "img_size": 256},
+        {"sample_id": 1, "img_size": 1024},
+        {"sample_id": 2, "img_size": 256},
+        {"sample_id": 2, "img_size": 1024},
+        {"sample_id": 3, "img_size": 256},
+        {"sample_id": 3, "img_size": 1024},
+    ]
+    for param_comb in PARAM_COMBINATIONS:
+        sample_id = param_comb["sample_id"]
+        img_size = param_comb["img_size"]
+        anno_dir = f'../SpatiallmDataProcessor/output/coco_with_scaled/sample{sample_id}_{img_size}/anno/'
+        ply_dir = f'DelaunayTriangleMesh/sample{sample_id}_{img_size}'
+        output_dir = f'InnerWall/sample{sample_id}_{img_size}'
+        os.makedirs(output_dir, exist_ok=True)
 
-    # anno_dir = '../SpatiallmDataProcessor/output/coco_with_scaled/sample0_256/anno/'
-    # ply_dir = 'DelaunayTriangleMesh/sample0_256'  # PLY文件保存目录
-    # os.makedirs(ply_dir, exist_ok=True)  # 确保目录存在
+        # 日志
+        logdir = f'InnerWall/log'
+        os.makedirs(logdir, exist_ok=True)
+        init_logger(os.path.join(logdir, f'sample{sample_id}_{img_size}.log'))
 
-    # json_files = sorted(glob.glob(os.path.join(anno_dir, 'scene_*.json')))  # 按名字排序
-    # for idx, json_path in enumerate(json_files[resume_from_idx:], start=resume_from_idx):
-    #     json_filename = os.path.basename(json_path)         # 如 'scene_000000.json'
-    #     ply_filename = json_filename.replace('.json', '.ply')  # 如 'scene_000000.ply'
-    #     ply_path = os.path.join(ply_dir, ply_filename)       # 如 'DelaunayTriangleMesh/sample0_256/scene_000000.ply'
-    #     output_image_name = os.path.join('rule_output/rule_test', json_filename.replace('.json', '.png'))
-    #     print(f"正在处理第 {idx+1} 个场景: {json_path}")
-    #     logging.info(f"正在处理第 {idx+1} 个场景: {json_path}")
-    #     try:
-    #         process_and_visualize_scene(json_path, output_image_name, ply_path)
-    #     except Exception as e:
-    #         print(f"[ERROR] 处理 {json_path} 时出错: {e}")
-    #         logging.error(f"[ERROR] 处理 {json_path} 时出错: {e}")
+        # 获取所有JSON文件
+        json_files = [f for f in os.listdir(anno_dir) if f.endswith('.json')]
+
+        # 准备参数列表
+        args_list = [(json_filename, anno_dir, ply_dir, output_dir, img_size) for json_filename in json_files]
+
+        # 使用多进程并行处理
+        NUM_WORKERS = max(1, int(cpu_count() * 1.5))
+        # NUM_WORKERS = 1
+        print(f"[INFO] 使用 {NUM_WORKERS} 个进程并行处理")
+        with Pool(processes=NUM_WORKERS) as pool:  # 根据CPU核心数调整进程数
+            pool.map(process_file, args_list)
+
+# if __name__ == '__main__':
+#     # # Test
+#     # # bak coco
+#     # json_path = '../SpatiallmDataProcessor/output/coco_with_scaled_bak/sample0_256/anno/scene_000000.json'
+#     # # ply_path = 'triangle_triangulation.ply'
+#     # ply_path = 'DelaunayTriangleMesh_bak/sample0_256/scene_000000.ply'
+#     # output_image_name = os.path.join('./', os.path.basename(json_path).replace('.json', '.png'))
+#     # process_and_visualize_scene(json_path, output_image_name, ply_path)
+
+#     # 假设所有JSON文件和PLY文件都在这些目录下
+#     sample_id = 0
+#     img_size = 256
+
+#     anno_dir = f'../SpatiallmDataProcessor/output/coco_with_scaled_bak/sample{sample_id}_{img_size}/anno/'
+#     ply_dir = f'DelaunayTriangleMesh_bak/sample{sample_id}_{img_size}'  # PLY文件保存目录
+#     output_dir = f'InnerWall/sample{sample_id}_{img_size}'
+
+#     os.makedirs(output_dir, exist_ok=True)
+
+#     json_files = os.listdir(anno_dir)
+#     for idx, json_filename in enumerate(json_files):
+#         ply_filename = json_filename.replace('.json', '.ply')  # 如 'scene_000000.ply'
+#         ply_path = os.path.join(ply_dir, ply_filename)       # 如 'DelaunayTriangleMesh/sample0_256/scene_000000.ply'
+#         json_path = os.path.join(anno_dir, json_filename)
+#         output_image_name = os.path.join(output_dir, json_filename.replace('.json', '.png'))
+
+#         logging.info(f"正在处理 {ply_path}")
+#         try:
+#             process_and_visualize_scene(img_size, json_path, output_image_name, ply_path)
+#         except Exception as e:
+#             print(f"[ERROR] 处理 {json_path} 时出错: {e}")
+#             logging.error(f"[ERROR] 处理 {json_path} 时出错: {e}")
 

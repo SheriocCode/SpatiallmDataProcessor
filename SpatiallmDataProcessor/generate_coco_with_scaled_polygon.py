@@ -450,9 +450,10 @@ def run_for_params(sample_id, img_size):
     global SAMPLE_ID
     SAMPLE_ID = sample_id
     IMG_SIZE = img_size
-
-    ply_data_root = "data/pcd"
-    layout_data_root = "data/layout"
+    ply_data_root = "/mnt/data3/spatial_dataset/pcd" 
+    layout_data_root = "/mnt/data3/spatial_dataset/layout"
+    # ply_data_root = "data/pcd"
+    # layout_data_root = "data/layout"
 
     ply_output_dir = f"coco_with_scaled/sample{SAMPLE_ID}_{IMG_SIZE}/density_map"
     layout_output_dir = f"coco_with_scaled/sample{SAMPLE_ID}_{IMG_SIZE}/anno"
@@ -463,7 +464,7 @@ def run_for_params(sample_id, img_size):
     os.makedirs(os.path.dirname(layout_output_dir), exist_ok=True)
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
 
-    NUM_WORKERS = 1
+    NUM_WORKERS = 12
 
     logging.basicConfig(
         filename=log_path,
@@ -498,7 +499,7 @@ if __name__ == "__main__":
         if name is not None and cat_id is not None:
             CATEGORIES_NAME_TO_ID[name] = cat_id
 
-    txt_poly_repaired_path = 'output/poly_repair_output/repaired_files_mapping.csv'
+    txt_poly_repaired_path = 'poly_repair_output/repaired_files_mapping.csv'
     
     def get_files_to_repair_list(repaired_mapping_csv_path):
         files_to_repair = []
